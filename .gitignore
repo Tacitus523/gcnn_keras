@@ -1,7 +1,9 @@
 .idea
 *.mat
-*.txt
 *.zip
+*.pickle
+*.png
+*.sdf
 /training/results/*/*/*.npz
 /training/results/*/*/scaler*.npz
 /training/results/*/*/*.pickle
