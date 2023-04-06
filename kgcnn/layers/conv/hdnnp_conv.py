@@ -271,8 +271,8 @@ class CENTCharge(GraphBaseLayer):
         return config
 
 
-@ks.utils.register_keras_serializable(package='kgcnn', name='ElectrostaticEnergyCharge')
-class ElectrostaticEnergyCharge(GraphBaseLayer):
+@ks.utils.register_keras_serializable(package='kgcnn', name='ElectrostaticEnergyGaussCharge')
+class ElectrostaticEnergyGaussCharge(GraphBaseLayer):
     r"""Compute electric energy according to
     `Ko et al. (2021) <https://www.nature.com/articles/s41467-020-20427-2>`_ .
 
@@ -302,8 +302,8 @@ class ElectrostaticEnergyCharge(GraphBaseLayer):
     .. code-block:: python
 
         import tensorflow as tf
-        from kgcnn.layers.conv.hdnnp_conv import ElectrostaticEnergyCharge
-        layer = ElectrostaticEnergyCharge()
+        from kgcnn.layers.conv.hdnnp_conv import ElectrostaticEnergyGaussCharge
+        layer = ElectrostaticEnergyGaussCharge()
         z = tf.ragged.constant([[1, 6], [1, 1, 6]], ragged_rank=1)
         q = tf.ragged.constant([[0.43, 0.37], [0.43, 0.43, 0.37]], ragged_rank=1)
         xyz = tf.ragged.constant([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
@@ -333,7 +333,7 @@ class ElectrostaticEnergyCharge(GraphBaseLayer):
                  use_physical_params: bool = True, param_constraint=None, param_regularizer=None,
                  param_initializer="glorot_uniform", param_trainable: bool = False,
                  _suppress_weight_initialization: bool = False, **kwargs):
-        super(ElectrostaticEnergyCharge, self).__init__(**kwargs)
+        super(ElectrostaticEnergyGaussCharge, self).__init__(**kwargs)
         self.add_eps = add_eps
         self.multiplicity = multiplicity
         self._suppress_weight_initialization = _suppress_weight_initialization
@@ -366,7 +366,7 @@ class ElectrostaticEnergyCharge(GraphBaseLayer):
                 self.set_weights([self._default_radii])
 
     def build(self, input_shape):
-        super(ElectrostaticEnergyCharge, self).build(input_shape)
+        super(ElectrostaticEnergyGaussCharge, self).build(input_shape)
 
     def _find_sigma_from_atom_number(self, inputs):
         return tf.gather(self.weight_sigma, inputs, axis=0)
@@ -429,7 +429,7 @@ class ElectrostaticEnergyCharge(GraphBaseLayer):
         return sum_pair + sum_self
 
     def get_config(self):
-        config = super(ElectrostaticEnergyCharge, self).get_config()
+        config = super(ElectrostaticEnergyGaussCharge, self).get_config()
         config.update({
             "add_eps": self.add_eps,
             "multiplicity": self.multiplicity,
@@ -441,23 +441,93 @@ class ElectrostaticEnergyCharge(GraphBaseLayer):
             "_suppress_weight_initialization": self._suppress_weight_initialization
         })
         return config
+    
+    
+@ks.utils.register_keras_serializable(package='kgcnn', name='ElectrostaticQMMMEnergyPointCharge')
+class ElectrostaticQMMMEnergyPointCharge(GraphBaseLayer):
+    r"""Compute QM/MM interation electricstatic energy with point charges and ESP of MM-atoms on QM-atoms :math:`{\Phi}` as
 
+    .. math::
+
+        {E}_{{\rm{elec}}}=\mathop{\sum }\limits_{i=1}^{{N}_{{\rm{{at}_{QM}}}}}{Q}_{i}{\Phi}_{i}=\,
+        \mathop{\sum }\limits_{i=1}^{{N}_{{\rm{{at}_{QM}}}}}{Q}_{i}\mathop{\sum }\limits_{j=1}^{{N}_{{\rm{{at}_{MM}}}}}
+        \frac{{Q}_{j}}{{r}_{ij}} .
+
+    Example of using this layer:
+
+    .. code-block:: python
+
+        import tensorflow as tf
+        from kgcnn.layers.conv.hdnnp_conv import ElectrostaticQMMMEnergyPointCharge
+        layer = ElectrostaticQMMMEnergyPointCharge()
+        q = tf.ragged.constant([[0.43, 0.37], [0.43, 0.43, 0.37]], ragged_rank=1)
+        esp = tf.ragged.constant([[0.44, 0.38], [0.44, 0.44, 0.38]], ragged_rank=1)
+        eng = layer([q, esp])
+        print(eng)
+
+    """
+
+    def __init__(self, add_eps: bool = False, **kwargs):
+        super(ElectrostaticQMMMEnergyPointCharge, self).__init__(**kwargs)
+        self.add_eps = add_eps
+        self.layer_exp_dims = ExpandDims(axis=2)
+        self.layer_pool_nodes = PoolingNodes(pooling_method="sum")
+
+    def build(self, input_shape):
+        super(ElectrostaticQMMMEnergyPointCharge, self).build(input_shape)
+        
+    @staticmethod
+    def _compute_energy(inputs):
+        q, esp = inputs
+        return q*esp
+
+    def call(self, inputs, mask=None, **kwargs):
+        r"""Forward pass.
+
+        Args:
+            inputs (list): [q, esp]
+
+                - q (tf.RaggedTensor): Learned atomic charges. Shape (batch, [N], 1)
+                - esp (tf.RaggedTensor): esp of MM-zone on atom. Shape (batch, [N], 1)
+
+            mask (list): Boolean mask for inputs. Not used. Defaults to None.
+
+        Returns:
+            tf.Tensor: Energy of shape (batch, 1)
+
+        """
+        q, esp = self.assert_ragged_input_rank(inputs, mask=mask, ragged_rank=1)
+        if q.shape.rank <= 2:
+            q = self.layer_exp_dims(q, **kwargs)
+        if esp.shape.rank <= 2:
+            esp = self.layer_exp_dims(esp, **kwargs)
+
+        energy = self.map_values(self._compute_energy, [q, esp])
+        sum_energy = self.layer_pool_nodes(energy)
+        return sum_energy
+
+    def get_config(self):
+        config = super(ElectrostaticQMMMEnergyPointCharge, self).get_config()
+        config.update({
+            "add_eps": self.add_eps
+        })
+        return config
 
 @ks.utils.register_keras_serializable(package='kgcnn', name='CENTChargePlusElectrostaticEnergy')
-class CENTChargePlusElectrostaticEnergy(CENTCharge, ElectrostaticEnergyCharge):
-    r"""Combines :obj:`CENTCharge` and :obj:`ElectrostaticEnergyCharge` .
+class CENTChargePlusElectrostaticEnergy(CENTCharge, ElectrostaticEnergyGaussCharge):
+    r"""Combines :obj:`CENTCharge` and :obj:`ElectrostaticEnergyGaussCharge` .
 
-    Please check documentation for :obj:`CENTCharge` and :obj:`ElectrostaticEnergyCharge` for information.
+    Please check documentation for :obj:`CENTCharge` and :obj:`ElectrostaticEnergyGaussCharge` for information.
 
     """
 
     def __init__(self, output_to_tensor: bool = False, use_physical_params: bool = True,
                  param_constraint=None, param_regularizer=None, param_initializer="glorot_uniform",
                  param_trainable: bool = False,
-                 # For ElectrostaticEnergyCharge.
+                 # For ElectrostaticEnergyGaussCharge.
                  add_eps: bool = False, multiplicity: float = 2.0,
                  **kwargs):
-        ElectrostaticEnergyCharge.__init__(
+        ElectrostaticEnergyGaussCharge.__init__(
             self, add_eps=add_eps, multiplicity=multiplicity, _suppress_weight_initialization=True)
         CENTCharge.__init__(
             self, output_to_tensor=output_to_tensor, use_physical_params=use_physical_params,
@@ -483,7 +553,7 @@ class CENTChargePlusElectrostaticEnergy(CENTCharge, ElectrostaticEnergyCharge):
         """
         n, chi, xyz, ij, qtot = inputs
         q = CENTCharge.call(self, [n, chi, xyz, qtot], **kwargs)
-        eng = ElectrostaticEnergyCharge.call(self, [n, q, xyz, ij], **kwargs)
+        eng = ElectrostaticEnergyGaussCharge.call(self, [n, q, xyz, ij], **kwargs)
         return q, eng
 
     def get_config(self):
