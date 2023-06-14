@@ -40,7 +40,8 @@ model_default_behler = {
                          "num_relations": 96,
                          "activation": ["swish", "swish", "linear"]},
     "cent_kwargs": {},
-    "electrostatic_kwargs": {},
+    "electrostatic_kwargs": {"name": "electrostatic_layer"},
+    "qmmm_kwargs": {"name": "qmmm_layer"},
     "node_pooling_args": {"pooling_method": "sum"},
     "verbose": 10,
     "output_embedding": "graph", "output_to_tensor": True,
@@ -62,6 +63,7 @@ def make_model_behler(inputs: list = None,
                       mlp_local_kwargs: dict = None,
                       cent_kwargs: dict = None,
                       electrostatic_kwargs: dict = None,
+                      qmmm_kwargs: dict = None,
                       output_embedding: str = None,
                       use_output_mlp: bool = None,
                       output_to_tensor: bool = None,
@@ -73,13 +75,14 @@ def make_model_behler(inputs: list = None,
     Default parameters can be found in :obj:`kgcnn.literature.HDNNP4th.model_default_behler` .
 
     Inputs:
-        list: `[node_number, node_coordinates, edge_indices, angle_indices_nodes, total_charge]`
+        list: `[node_number, node_coordinates, edge_indices, angle_indices_nodes, total_charge, esp]`
 
             - node_number (tf.RaggedTensor): Atomic number of shape `(batch, None)` .
             - node_coordinates (tf.RaggedTensor): Node (atomic) coordinates of shape `(batch, None, 3)` .
             - edge_indices (tf.RaggedTensor): Index list for edges of shape `(batch, None, 2)` .
             - angle_indices_nodes (tf.RaggedTensor): Index list for angles of shape `(batch, None, 3)` .
             - total_charge (tf.Tensor): Total charge of each molecule of shape `(batch, 1)` .
+            - esp (tf.RaggedTensor): ESP on QM-atoms from MM-atoms of shape `(batch, None)` .
 
     Outputs:
         tf.Tensor: Graph embeddings of shape `(batch, L)` if :obj:`output_embedding="graph"`.
@@ -95,6 +98,7 @@ def make_model_behler(inputs: list = None,
         mlp_charge_kwargs (dict): Dictionary of layer arguments unpacked in :obj:`RelationalMLP` layer.
         mlp_local_kwargs (dict): Dictionary of layer arguments unpacked in :obj:`RelationalMLP` layer.
         electrostatic_kwargs (dict): Dictionary of layer arguments unpacked in :obj:`ElectrostaticEnergyCharge` layer.
+        qmmm_kwargs (dict): Dictionary of layer arguments unpacked in :obj:`ElectrostaticQMMMEnergyPointCharge` layer.
         cent_kwargs (dict): Dictionary of layer arguments unpacked in :obj:`CENTCharge` layer.
         output_embedding (str): Main embedding task for graph network. Either "node", "edge" or "graph".
         use_output_mlp (bool): Whether to use the final output MLP. Possibility to skip final MLP.
@@ -112,31 +116,37 @@ def make_model_behler(inputs: list = None,
     edge_index_input = ks.layers.Input(**inputs[2])
     angle_index_input = ks.layers.Input(**inputs[3])
     total_charge_input = ks.layers.Input(**inputs[4])
+    esp_input = ks.layers.Input(**inputs[5])
 
     # ACSF representation.
     rep_g2 = ACSFG2(**ACSFG2.make_param_table(**g2_kwargs))([node_input, xyz_input, edge_index_input])
     rep_g4 = ACSFG4(**ACSFG4.make_param_table(**g4_kwargs))([node_input, xyz_input, angle_index_input])
     rep = LazyConcatenate()([rep_g2, rep_g4])
 
+    esp_expanded = ExpandDims(axis=2)(esp_input)
+    rep_esp = LazyConcatenate(axis=2)([rep, esp_expanded])
+
     # Normalization
     if normalize_kwargs:
-        rep = GraphBatchNormalization(**normalize_kwargs)(rep)
+        rep_esp = GraphBatchNormalization(**normalize_kwargs)(rep_esp)
 
     # learnable NN.
-    chi = RelationalMLP(**mlp_charge_kwargs)([rep, node_input])
-
+    chi = RelationalMLP(**mlp_charge_kwargs)([rep_esp, node_input])
+    chi_and_esp = ks.layers.Add()([chi, esp_expanded])
+    
     # Compute separately, meaning separate weights for sigma.
     # q_local = CENTCharge(**cent_kwargs)([node_input, chi, xyz_input, total_charge_input])
     # eng_elec = ElectrostaticEnergyCharge(**electrostatic_kwargs)([node_input, q_local, xyz_input, edge_index_input])
     q_local, eng_elec = CENTChargePlusElectrostaticEnergy(**cent_kwargs, **electrostatic_kwargs)(
-        [node_input, chi, xyz_input, edge_index_input, total_charge_input]
+        [node_input, chi_and_esp, xyz_input, edge_index_input, total_charge_input]
     )
-
-    rep_charge = LazyConcatenate()([rep, q_local])
+    eng_qmmm = ElectrostaticQMMMEnergyPointCharge(**qmmm_kwargs)([q_local, esp_input])
+    
+    rep_charge = LazyConcatenate()([rep_esp, q_local])
     local_node_energy = RelationalMLP(**mlp_local_kwargs)([rep_charge, node_input])
     eng_short = PoolingNodes(**node_pooling_args)(local_node_energy)
 
-    out = ks.layers.Add()([eng_short, eng_elec])
+    out = ks.layers.Add()([eng_short, eng_elec, eng_qmmm])
 
     # Output embedding choice
     if output_embedding == 'graph' or output_embedding == 'total_energy':
@@ -150,7 +160,7 @@ def make_model_behler(inputs: list = None,
         raise ValueError("Unsupported output embedding for mode `HDNNP4th`")
 
     model = ks.models.Model(
-        inputs=[node_input, xyz_input, edge_index_input, angle_index_input, total_charge_input], outputs=out, name=name)
+        inputs=[node_input, xyz_input, edge_index_input, angle_index_input, total_charge_input, esp_input], outputs=out, name=name)
 
     model.__kgcnn_model_version__ = __model_version__
     return model
@@ -242,13 +252,21 @@ def make_model_learn(inputs: list = None,
     total_charge_input = ks.layers.Input(**inputs[4])
     rep_input  = ks.layers.Input(**inputs[5])
     esp_input = ks.layers.Input(**inputs[6])
+
+    # if normalize_kwargs:
+    #    rep_input = GraphBatchNormalization(**normalize_kwargs)(rep_input)
+
+    # chi = RelationalMLP(**mlp_charge_kwargs)([rep_input, node_input])
+    # q_local = CENTCharge(**cent_kwargs)([node_input, chi, xyz_input, total_charge_input])
+    # eng_elec = ElectrostaticEnergyGaussCharge(**electrostatic_kwargs)([node_input, q_local, xyz_input, edge_index_input])
+    # rep_charge = LazyConcatenate()([rep_input, q_local])
     
     esp_expanded = ExpandDims(axis=2)(esp_input)
-    rep_esp = LazyConcatenate()([rep_input, esp_expanded])
+    rep_esp = LazyConcatenate(axis=2)([rep_input, esp_expanded])
     
     # Normalization
     if normalize_kwargs:
-        rep_esp = GraphBatchNormalization(**normalize_kwargs)(rep_esp)
+       rep_esp = GraphBatchNormalization(**normalize_kwargs)(rep_esp)
 
     # learnable NN.
     chi = RelationalMLP(**mlp_charge_kwargs)([rep_esp, node_input])
@@ -256,11 +274,11 @@ def make_model_learn(inputs: list = None,
     q_local = CENTCharge(**cent_kwargs)([node_input, chi_and_esp, xyz_input, total_charge_input])
     eng_elec = ElectrostaticEnergyGaussCharge(**electrostatic_kwargs)([node_input, q_local, xyz_input, edge_index_input])
     eng_qmmm = ElectrostaticQMMMEnergyPointCharge(**qmmm_kwargs)([q_local, esp_input])
-
-    rep_charge = LazyConcatenate()([rep_esp, q_local])
+    rep_charge = LazyConcatenate(axis=2)([rep_esp, q_local])
     local_node_energy = RelationalMLP(**mlp_local_kwargs)([rep_charge, node_input])
     eng_short = PoolingNodes(**node_pooling_args)(local_node_energy)
 
+    #out = ks.layers.Add()([eng_short, eng_elec])
     out = ks.layers.Add()([eng_short, eng_elec, eng_qmmm])
 
     # Output embedding choice

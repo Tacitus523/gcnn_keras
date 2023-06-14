@@ -82,7 +82,7 @@ class CENTCharge(GraphBaseLayer):
     """
 
     # From https://en.wikipedia.org/wiki/Covalent_radius with radii in pm.
-    _default_radii = 0.01 * np.array([
+    _default_radii = 0.0188973 * np.array([
         0.0, 31, 28,
         128, 96, 84, 73, 71, 66, 57, 58,
         166, 141, 121, 111, 107, 105, 102, 106,
