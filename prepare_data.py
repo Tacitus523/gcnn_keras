@@ -1,0 +1,108 @@
+import numpy as np
+import pandas as pd
+import os
+from os.path import join
+import shutil
+import warnings
+
+OVERWRITE = False # Set to True to enforce the writing in TARGET_FOLDER possibly overwriting data
+
+DATA_FOLDER = "/home/lpetersen/dftb-nn/data/B3LYP_aug-cc-pVTZ_water" # Folder that contains data the files
+GEOMETRY_FILE = "geoms.xyz" # path to geometry-file, gromacs-format, in Angstrom
+ENERGY_FILE = "energy_diff.txt" # path to energy-file, no header, separated by new lines, in Hartree
+ESP_FILE = "esps_by_mm.txt" # path to esp caused by mm atoms, "" if not available, in V
+FORCE_FILE = "forces.xyz" # path to force-file, "" if not available, in Eh/Bohr, apparently given like that from Orca
+TOTAL_CHARGE = -1 # total charge of molecule, different charges not supported
+PREFIX = "ThiolDisulfidExchange" # prefix to generated files, compulsary for kgcnn read-in
+TARGET_FOLDER = "B3LYP_aug-cc-pVTZ_water" # target folder to save the data, gets redirected to a file in this files location
+
+BABEL_DATADIR = "/usr/local/run/openbabel-2.4.1" # local installation of openbabel
+
+
+os.environ['BABEL_DATADIR'] = BABEL_DATADIR
+
+# Supress tensorflow info-messages and warnings
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+
+from kgcnn.data.base import MemoryGraphDataset
+from kgcnn.data.qm import QMDataset
+
+def copy_data(geometry_path: str, esp_path: str, force_path: str, prefix: str, target_path: str) -> None:
+    shutil.copyfile(geometry_path, join(target_path, f"{prefix}.xyz"))
+    if os.path.isfile(esp_path):
+        shutil.copyfile(esp_path, join(target_path, f"esps_by_mm.txt"))
+    if os.path.isfile(force_path):
+        shutil.copyfile(force_path, join(target_path, f"forces.xyz"))
+
+
+def make_and_write_csv(energy_path: str, total_charge: int, prefix: str, target_path: str) -> None:
+    """prepares the csv for fourth generation HDNNP
+
+    Args:
+        energy_path (str): path to energy-file, no header, separated by new lines
+        total_charge (int): total charge of molecule, different charges not supported
+        target_path (str): target folder to save the data
+    """
+    df = pd.read_csv(energy_path, names=["energy"])
+    df["total_charge"] = np.ones_like(df["energy"], dtype=float)*total_charge
+    df.to_csv(join(target_path,f"{prefix}.csv"), index=False, header=True, sep=',')
+    
+def prepare_kgcnn_dataset(data_directory: str, dataset_name: str) -> None:
+    file_name=f"{dataset_name}.csv"
+    
+    dataset = QMDataset(data_directory=data_directory, file_name=file_name, dataset_name=dataset_name)
+    dataset.prepare_data(overwrite=True, make_sdf = True)
+    dataset.read_in_memory(label_column_name="energy", additional_callbacks = {'total_charge': lambda mg, dd: dd['total_charge']})
+    
+    dataset.map_list(method="set_range", max_distance=5.0)
+    dataset.map_list(method="set_angle")
+    
+    # Distancs in a.u.
+    angstrom_to_bohr = 1.8897259886
+    for i in range(len(dataset)):
+        dataset[i]["node_coordinates"] *= angstrom_to_bohr
+    
+    #TODO: Indicator for molecule end in forces file
+    force_path = os.path.join(os.path.normpath(os.path.dirname(dataset.file_path)), "forces.xyz")
+    try:
+        forces = np.loadtxt(force_path)
+        forces = forces.reshape((-1,15,3))
+        print("Got Forces")
+        for i in range(len(dataset)):
+            dataset[i].set("force", forces[i])
+    except:
+        print("No Forces")    
+    
+    V_to_au = 1/27.211386245988
+    esp_path = os.path.join(os.path.normpath(os.path.dirname(dataset.file_path)), "esps_by_mm.txt")
+    try:
+        esps = np.loadtxt(esp_path)*V_to_au
+        print("Got ESP")
+        for i in range(len(dataset)):
+            dataset[i].set("esp", esps[i])
+    except:
+        for i in range(len(dataset)):
+            dataset[i].set("esp", np.zeros_like(dataset[i]["node_number"], dtype=np.float64))
+        print("Vacuum")
+        
+    dataset.save()
+
+if __name__ == "__main__":
+    target_path = join(os.path.normpath(os.path.dirname(__file__)), join("data", TARGET_FOLDER))
+    if not os.path.exists(target_path):
+        os.makedirs(target_path)
+    elif OVERWRITE is False:
+        print(f"{target_path} already exists and OVERWRITE is False. Aborting")
+        exit()
+    else:
+        print(f"Warning: Existing data in {target_path} was overwritten")
+        
+    geometry_path = join(DATA_FOLDER, GEOMETRY_FILE)
+    energy_path = join(DATA_FOLDER, ENERGY_FILE)
+    esp_path = join(DATA_FOLDER, ESP_FILE)
+    force_path = join(DATA_FOLDER, FORCE_FILE)
+    
+    copy_data(geometry_path=geometry_path, esp_path=esp_path, force_path=force_path, prefix=PREFIX, target_path=target_path)
+    make_and_write_csv(energy_path=energy_path, total_charge=TOTAL_CHARGE, prefix=PREFIX, target_path=target_path)
+    
+    prepare_kgcnn_dataset(data_directory=target_path, dataset_name=PREFIX)
