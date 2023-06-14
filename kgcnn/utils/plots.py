@@ -88,7 +88,7 @@ def plot_train_test_loss(histories: list, loss_name: str = None,
 
 def plot_predict_true(y_predict, y_true, data_unit: list = None, model_name: str = "",
                       filepath: str = None, file_name: str = "", dataset_name: str = "", target_names: list = None,
-                      figsize: list = None, dpi: float = None, show_fig: bool = False):
+                      error: str = "MAE", figsize: list = None, dpi: float = None, show_fig: bool = False):
     r"""Make a scatter plot of predicted versus actual targets. Not for k-splits.
 
     Args:
@@ -100,6 +100,7 @@ def plot_predict_true(y_predict, y_true, data_unit: list = None, model_name: str
         file_name (str): File name base. Model name and dataset will be added to the name. Default is "".
         dataset_name (str): Name of the dataset which was fitted to. Default is "".
         target_names (list): String or list of string that matches `n_targets`. Name of the targets.
+        error (str): String, "MAE" or "RMSE". Error plotted on figure. Default is "MAE"
         figsize (list): Size of the figure. Default is None.
         dpi (float): The resolution of the figure in dots-per-inch. Default is None.
         show_fig (bool): Whether to show figure. Default is True.
@@ -125,6 +126,11 @@ def plot_predict_true(y_predict, y_true, data_unit: list = None, model_name: str
         target_names = [target_names]*num_targets
     if len(target_names) != num_targets:
         print("WARNING:kgcnn: Targets do not match names for plot.")
+    if error is None:
+        error = "MAE"
+    elif error not in ("MAE", "RMSE"):
+        print("WARNING:kgcnn: Unrecognized error type. Using MAE instead")
+        error = "MAE"
 
     if figsize is None:
         figsize = [6.4, 4.8]
@@ -134,8 +140,13 @@ def plot_predict_true(y_predict, y_true, data_unit: list = None, model_name: str
     for i in range(num_targets):
         delta_valid = y_true[:, i] - y_predict[:, i]
         mae_valid = np.mean(np.abs(delta_valid[~np.isnan(delta_valid)]))
-        plt.scatter(y_predict[:, i], y_true[:, i], alpha=0.3,
-                    label=target_names[i] + " MAE: {0:0.4f} ".format(mae_valid) + "[" + data_unit[i] + "]")
+        rmse_valid = np.sqrt(np.mean((delta_valid[~np.isnan(delta_valid)])**2))
+        if error == "MAE":
+            plt.scatter(y_predict[:, i], y_true[:, i], alpha=0.3,
+                        label=target_names[i] + " MAE: {0:0.4f} ".format(mae_valid) + "[" + data_unit[i] + "]")
+        elif error == "RMSE":
+             plt.scatter(y_predict[:, i], y_true[:, i], alpha=0.3,
+                        label=target_names[i] + " RMSE: {0:0.4f} ".format(rmse_valid) + "[" + data_unit[i] + "]")       
     min_max = np.amin(y_true[~np.isnan(y_true)]), np.amax(y_true[~np.isnan(y_true)])
     plt.plot(np.arange(*min_max, 0.05), np.arange(*min_max, 0.05), color='red')
     plt.xlabel('Predicted')
