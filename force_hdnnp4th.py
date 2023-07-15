@@ -41,6 +41,7 @@ if args.gpuid is not None:
 data_directory = os.path.join(os.path.dirname(__file__), data_directory)
 dataset = MemoryGraphDataset(data_directory=data_directory, dataset_name=dataset_name)
 dataset.load()
+dataset=dataset[:10]
 print(dataset[0].keys())
 
 # to inverse force data
@@ -89,11 +90,10 @@ model_config = {
                    "activation": ["swish", "linear"]}
 }
 
-outputs = {
-            "energy": {"name": "graph_labels", "ragged": False},
-            "force": {"name": "force", "shape": (None, 3), "ragged": True}
-}
-
+outputs = [
+    {"name": "graph_labels", "ragged": False},
+    {"name": "force", "shape": (None, 3), "ragged": True}
+]
 inputs = dataset.tensor(model_config["inputs"])
 print("Amount of inputs:", len(inputs))
 for i in range(len(inputs)):
@@ -113,12 +113,13 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
     model_energy = make_model(**model_config)
     model_energy_force = EnergyForceModel(
         model_energy = model_energy,
-        output_to_tensor = False,
+        output_to_tensor = True,
+        output_as_dict = False,
         output_squeeze_states = True
     )
     
     model_energy_force.compile(
-        loss={"energy": "mean_absolute_error", "force": RaggedMeanAbsoluteError()},
+        loss="mean_squared_error",
         optimizer=ks.optimizers.Adam(),
         metrics=None,
         loss_weights=[1, 199],
@@ -150,7 +151,7 @@ scaler.inverse_transform_dataset(dataset, **scaler_mapping)
 true_y = np.array(dataset[test_index].get("graph_labels")), np.array(dataset[test_index].get("force"))
 predicted_y = model_energy_force.predict(x_test, verbose=0)
 predicted_y = scaler.inverse_transform(
-    y=(predicted_y["energy"], predicted_y["force"]), X=dataset[test_index].get("node_number"))
+    y=(predicted_y[0], predicted_y[1]), X=dataset[test_index].get("node_number"))
 
 plot_predict_true(np.array(predicted_y[0]), true_y[0],
     filepath="", data_unit="Eh",
