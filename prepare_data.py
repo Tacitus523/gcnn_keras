@@ -5,12 +5,14 @@ from os.path import join
 import shutil
 import warnings
 
-OVERWRITE = False # Set to True to enforce the writing in TARGET_FOLDER possibly overwriting data
+OVERWRITE = True # Set to True to enforce the writing in TARGET_FOLDER possibly overwriting data
 
 DATA_FOLDER = "/home/lpetersen/dftb-nn/data/B3LYP_aug-cc-pVTZ_water" # Folder that contains data the files
 GEOMETRY_FILE = "geoms.xyz" # path to geometry-file, gromacs-format, in Angstrom
 ENERGY_FILE = "energy_diff.txt" # path to energy-file, no header, separated by new lines, in Hartree
-ESP_FILE = "esps_by_mm.txt" # path to esp caused by mm atoms, "" if not available, in V
+CHARGE_FILE = "charges_hirsh.txt" # path to charge-file, one line per molecule geometry,  "" if not available, in elementary charges
+ESP_FILE = "" # path to esp caused by mm atoms, one line per molecule geometry, "" if not available, in V
+AT_COUNT = 15 # atom count, used if no charges supplied
 FORCE_FILE = "forces.xyz" # path to force-file, "" if not available, in Eh/Bohr, apparently given like that from Orca
 TOTAL_CHARGE = -1 # total charge of molecule, different charges not supported
 PREFIX = "ThiolDisulfidExchange" # prefix to generated files, compulsary for kgcnn read-in
@@ -27,8 +29,10 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 from kgcnn.data.base import MemoryGraphDataset
 from kgcnn.data.qm import QMDataset
 
-def copy_data(geometry_path: str, esp_path: str, force_path: str, prefix: str, target_path: str) -> None:
+def copy_data(geometry_path: str, charge_path: str, esp_path: str, force_path: str, prefix: str, target_path: str) -> None:
     shutil.copyfile(geometry_path, join(target_path, f"{prefix}.xyz"))
+    if os.path.isfile(charge_path):
+        shutil.copyfile(charge_path, join(target_path, f"charges.txt"))
     if os.path.isfile(esp_path):
         shutil.copyfile(esp_path, join(target_path, f"esps_by_mm.txt"))
     if os.path.isfile(force_path):
@@ -62,14 +66,25 @@ def prepare_kgcnn_dataset(data_directory: str, dataset_name: str) -> None:
     for i in range(len(dataset)):
         dataset[i]["node_coordinates"] *= angstrom_to_bohr
     
+    charge_path = os.path.join(os.path.normpath(os.path.dirname(dataset.file_path)), "charges.txt")
+    try:
+        charges = np.loadtxt(charge_path)
+        for i in range(len(dataset)):
+            dataset[i].set("charge", charges[i])
+        at_count = charges.shape[1]
+        print("Got Charges")
+    except:
+        print("No Charges")
+        at_count = AT_COUNT
+
     #TODO: Indicator for molecule end in forces file
     force_path = os.path.join(os.path.normpath(os.path.dirname(dataset.file_path)), "forces.xyz")
     try:
         forces = np.loadtxt(force_path)
-        forces = forces.reshape((-1,15,3))
-        print("Got Forces")
+        forces = forces.reshape((-1, at_count, 3))
         for i in range(len(dataset)):
             dataset[i].set("force", forces[i])
+        print("Got Forces")
     except:
         print("No Forces")    
     
@@ -77,9 +92,9 @@ def prepare_kgcnn_dataset(data_directory: str, dataset_name: str) -> None:
     esp_path = os.path.join(os.path.normpath(os.path.dirname(dataset.file_path)), "esps_by_mm.txt")
     try:
         esps = np.loadtxt(esp_path)*V_to_au
-        print("Got ESP")
         for i in range(len(dataset)):
             dataset[i].set("esp", esps[i])
+        print("Got ESP")
     except:
         for i in range(len(dataset)):
             dataset[i].set("esp", np.zeros_like(dataset[i]["node_number"], dtype=np.float64))
@@ -99,10 +114,11 @@ if __name__ == "__main__":
         
     geometry_path = join(DATA_FOLDER, GEOMETRY_FILE)
     energy_path = join(DATA_FOLDER, ENERGY_FILE)
+    charge_path = join(DATA_FOLDER, CHARGE_FILE)
     esp_path = join(DATA_FOLDER, ESP_FILE)
     force_path = join(DATA_FOLDER, FORCE_FILE)
     
-    copy_data(geometry_path=geometry_path, esp_path=esp_path, force_path=force_path, prefix=PREFIX, target_path=target_path)
+    copy_data(geometry_path=geometry_path, charge_path=charge_path, esp_path=esp_path, force_path=force_path, prefix=PREFIX, target_path=target_path)
     make_and_write_csv(energy_path=energy_path, total_charge=TOTAL_CHARGE, prefix=PREFIX, target_path=target_path)
     
     prepare_kgcnn_dataset(data_directory=target_path, dataset_name=PREFIX)
