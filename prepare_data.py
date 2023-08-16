@@ -14,7 +14,7 @@ CHARGE_FILE = "charges_hirsh.txt" # path to charge-file, one line per molecule g
 ESP_FILE = "" # path to esp caused by mm atoms, one line per molecule geometry, "" if not available, in V
 AT_COUNT = 15 # atom count, used if no charges supplied
 FORCE_FILE = "forces.xyz" # path to force-file, "" if not available, in Eh/Bohr, apparently given like that from Orca
-TOTAL_CHARGE = -1 # total charge of molecule, different charges not supported
+TOTAL_CHARGE = -1 # total charge of molecule, None if not available, different charges not supported
 PREFIX = "ThiolDisulfidExchange" # prefix to generated files, compulsary for kgcnn read-in
 TARGET_FOLDER = "B3LYP_aug-cc-pVTZ_water" # target folder to save the data, gets redirected to a file in this files location
 
@@ -48,8 +48,9 @@ def make_and_write_csv(energy_path: str, total_charge: int, prefix: str, target_
         target_path (str): target folder to save the data
     """
     df = pd.read_csv(energy_path, names=["energy"])
-    df["total_charge"] = np.ones_like(df["energy"], dtype=float)*total_charge
-    df.to_csv(join(target_path,f"{prefix}.csv"), index=False, header=True, sep=',')
+    if total_charge is not None:
+        df["total_charge"] = np.ones_like(df["energy"], dtype=float)*total_charge
+        df.to_csv(join(target_path,f"{prefix}.csv"), index=False, header=True, sep=',')
     
 def prepare_kgcnn_dataset(data_directory: str, dataset_name: str) -> None:
     file_name=f"{dataset_name}.csv"
