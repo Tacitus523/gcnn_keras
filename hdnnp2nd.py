@@ -18,7 +18,7 @@ from kgcnn.graph.base import GraphDict
 from kgcnn.data.base import MemoryGraphList, MemoryGraphDataset
 from kgcnn.data.qm import QMDataset
 from kgcnn.training.scheduler import LinearLearningRateScheduler
-from kgcnn.literature.HDNNP2nd import make_model_behler
+from kgcnn.literature.HDNNP2nd import make_model_behler as make_model
 from kgcnn.data.transform.scaler.mol import ExtensiveMolecularScaler
 from kgcnn.utils.plots import plot_predict_true, plot_train_test_loss
 from kgcnn.utils.devices import set_devices_gpu
@@ -46,6 +46,7 @@ dataset.load()
 print(dataset[0].keys())
 
 elemental_mapping = ELEMENTAL_MAPPING
+dataset_name = DATASET_NAME
 
 # Radial parameters
 cutoff_rad = 20
