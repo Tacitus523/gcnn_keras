@@ -1,5 +1,6 @@
 import argparse
 from datetime import timedelta
+import json
 import os
 import time
 import warnings
@@ -8,6 +9,8 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 warnings.filterwarnings("ignore")
 
 import numpy as np
+import pandas as pd
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import KFold
 import tensorflow as tf
 tf.get_logger().setLevel("ERROR")
@@ -20,8 +23,9 @@ from kgcnn.data.qm import QMDataset
 from kgcnn.training.scheduler import LinearLearningRateScheduler
 from kgcnn.literature.HDNNP4th import make_model_behler_charge_separat as make_model
 from kgcnn.data.transform.scaler.force import EnergyForceExtensiveLabelScaler
-from kgcnn.utils.plots import plot_predict_true, plot_train_test_loss
+from kgcnn.utils.plots import plot_predict_true, plot_train_test_loss, plot_test_set_prediction
 from kgcnn.utils.devices import set_devices_gpu
+from kgcnn.utils import constants
 from kgcnn.model.force import EnergyForceModel
 from kgcnn.metrics.loss import RaggedMeanAbsoluteError
 
@@ -186,24 +190,28 @@ model_energy.summary()
 model_energy_force.save("model_energy_force")
 
 #scaler.inverse_transform_dataset(dataset, **scaler_mapping)
-true_charge, true_energy, true_force = np.array(dataset[test_index].get("charge")), np.array(dataset[test_index].get("graph_labels")), np.array(dataset[test_index].get("force"))
+true_charge = np.array(dataset[test_index].get("charge")).reshape(-1,1)
+true_energy = np.array(dataset[test_index].get("graph_labels"))*constants.hartree_to_kcalmol
+true_force = np.array(dataset[test_index].get("force")).reshape(-1,1)
 predicted_charge, predicted_energy, predicted_force = model_energy_force.predict(x_test, verbose=0)
-
 # predicted_energy, predicted_force = scaler.inverse_transform(
 #     y=(predicted_energy, predicted_force), X=dataset[test_index].get("node_number"))
+predicted_charge = np.array(predicted_charge).reshape(-1,1)
+predicted_energy = np.array(predicted_energy)*constants.hartree_to_kcalmol
+predicted_force = np.array(predicted_force).reshape(-1,1)
 
-plot_predict_true(np.array(predicted_charge).reshape(-1,1), np.array(true_charge).reshape(-1,1),
+
+plot_predict_true(predicted_charge, true_charge,
     filepath="", data_unit="e",
     model_name="HDNNP", dataset_name=dataset_name, target_names="Charge",
     error="RMSE", file_name=f"predict_charge.png", show_fig=False)
 
-plot_predict_true(np.array(predicted_energy), true_energy,
-    filepath="", data_unit="Eh",
+plot_predict_true(predicted_energy, true_energy,
+    filepath="", data_unit=r"$\frac{kcal}{mol}$",
     model_name="HDNNP", dataset_name=dataset_name, target_names="Energy",
     error="RMSE", file_name=f"predict_energy.png", show_fig=False)
 
-
-plot_predict_true(np.array(predicted_force).reshape(-1,1), np.array(true_force).reshape(-1,1),
+plot_predict_true(predicted_force, true_force,
     filepath="", data_unit="Eh/B",
     model_name="HDNNP", dataset_name=dataset_name, target_names="Force",
     error="RMSE", file_name=f"predict_force.png", show_fig=False)
@@ -215,3 +223,49 @@ plot_train_test_loss(charge_hists,
 plot_train_test_loss(hists,
     filepath="", data_unit="Eh",
     model_name="HDNNP", dataset_name=dataset_name, file_name="loss.png", show_fig=False)
+
+rmse_charge = mean_squared_error(true_charge, predicted_charge, squared=False)
+mae_charge  = mean_absolute_error(true_charge, predicted_charge)
+r2_charge   = r2_score(true_charge, predicted_charge)
+
+rmse_energy = mean_squared_error(true_energy, predicted_energy, squared=False)
+mae_energy  = mean_absolute_error(true_energy, predicted_energy)
+r2_energy   = r2_score(true_energy, predicted_energy)
+
+rmse_force = mean_squared_error(true_force, predicted_force, squared=False)
+mae_force  = mean_absolute_error(true_force, predicted_force)
+r2_force   = r2_score(true_force, predicted_force)
+
+error_dict = {
+    "RMSE Charge": f"{rmse_charge:.3f}",
+    "MAE Charge": f"{mae_charge:.3f}",
+    "R2 Charge": f"{r2_charge:.2f}",
+    "RMSE Energy": f"{rmse_energy:.1f}",
+    "MAE Energy": f"{mae_energy:.1f}",
+    "R2 Energy": f"{r2_energy:.2f}",
+    "RMSE Force": f"{rmse_force:.3f}",
+    "MAE Force": f"{mae_force:.3f}",
+    "R2 Force": f"{r2_force:.2f}"
+}
+
+for key, value in error_dict.items():
+    print(f"{key}: {value}")
+
+with open(os.path.join("", "errors.json"), "w") as f:
+    json.dump(error_dict, f, indent=2, sort_keys=True)
+
+charge_df = pd.DataFrame({"charge_reference": true_charge.flatten(), "charge_prediction": predicted_charge.flatten()})
+energy_df = pd.DataFrame({"energy_reference": true_energy.flatten(), "energy_prediction": predicted_energy.flatten()})
+force_df = pd.DataFrame({"force_reference": true_force.flatten(), "force_prediction": predicted_force.flatten()})
+
+atomic_numbers = np.array(dataset[test_index].get("node_number")).flatten()
+at_types_column = pd.Series(atomic_numbers, name="at_types").replace(constants.atomic_number_to_element)
+charge_df["at_types"] = at_types_column
+force_df["at_types"] =  at_types_column
+
+plot_test_set_prediction(charge_df, "charge_reference", "charge_prediction",
+    "Charge", "e", rmse_charge, r2_charge, "")
+plot_test_set_prediction(energy_df, "energy_reference", "energy_prediction",
+    "Energy", r"$\frac{kcal}{mol}$", rmse_energy, r2_energy, "")
+plot_test_set_prediction(force_df, "force_reference", "force_prediction",
+    "Force", r"$\frac{E_h}{B}$", rmse_force, r2_force, "")

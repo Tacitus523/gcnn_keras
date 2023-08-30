@@ -1,5 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+import seaborn as sns
 import tensorflow as tf
 import os
 
@@ -158,3 +160,52 @@ def plot_predict_true(y_predict, y_true, data_unit: list = None, model_name: str
     if show_fig:
         plt.show()
     return fig
+
+def plot_test_set_prediction(data: pd.DataFrame, observation: str, prediction: str, title: str = "", unit: str = "",
+                             rmse: float = None, r2: float = None, filepath: str = None, show_fig: bool = False):
+    plt.figure(figsize=(7,5))
+    FONTSIZE  = 18
+    LABELSIZE = 15
+    if "at_types" in data.columns:
+        plot = sns.lmplot(y=observation, x=prediction, data=data, hue="at_types",
+            scatter_kws={"marker": ".", "alpha": 0.1},
+            line_kws={"linewidth": 3},
+            height=6,
+            legend=False)
+        legend = plt.legend(title='Atom Types', loc='upper left', fontsize=FONTSIZE, title_fontsize=FONTSIZE)
+
+        for legend_handle in legend.legendHandles: 
+            legend_handle.set_alpha(1)
+    else:
+        plot = sns.lmplot(y=observation, x=prediction, data=data,
+            scatter_kws={"marker": ".", "alpha": 0.1},
+            line_kws={"linewidth": 1},
+            height=6)
+    plt.xlabel(f"Prediction {title} [{unit}]", fontsize=FONTSIZE)
+    plt.ylabel(f"Reference {title} [{unit}]",fontsize=FONTSIZE)
+    value_min = data[[observation,prediction]].min().min()
+    value_max = data[[observation,prediction]].max().max()
+    plt.plot([value_min-1, value_max+1], [value_min-1, value_max+1], "k")
+    plot.set(xlim=(value_min, value_max))
+    plot.set(ylim=(value_min, value_max))
+    plt.grid(which="major", linestyle="-", linewidth="0.5", color="purple")
+    plt.grid(which="minor", linestyle="-", linewidth="0.5", color="blue", alpha=0.25)
+    #plt.minorticks_on()
+    plt.tick_params(axis='both', which="major", labelsize=LABELSIZE)
+    plt.title(f"Prediction {title}", fontsize=FONTSIZE)
+    text_x = 0.75*(value_max-value_min) + value_min
+    text_y = 0.1*(value_max-value_min) + value_min
+    if rmse is not None and r2 is not None:
+        plot.ax.text(text_x, text_y, f"RMSE: {rmse:.3f}\nR2: {r2:.2f}", bbox={
+        "facecolor": "grey", "alpha": 0.5, "pad": 10})
+    elif rmse is not None:
+        plot.ax.text(text_x, text_y, f"RMSE: {rmse:.3f}", bbox={
+        "facecolor": "grey", "alpha": 0.5, "pad": 10})
+    elif r2 is not None:
+        plot.ax.text(text_x, text_y, f"R2: {r2:.2f}", bbox={
+        "facecolor": "grey", "alpha": 0.5, "pad": 10})
+    if filepath is not None:
+        plt.savefig(os.path.join(filepath, f"{'_'.join(title.split())}_lmplot"), dpi=300, bbox_inches = "tight")
+    if show_fig is True:
+        plt.show()
+    plt.close()
