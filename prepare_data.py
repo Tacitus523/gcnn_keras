@@ -7,16 +7,17 @@ import warnings
 
 OVERWRITE = True # Set to True to enforce the writing in TARGET_FOLDER possibly overwriting data
 
-DATA_FOLDER = "/home/lpetersen/dftb-nn/data/B3LYP_aug-cc-pVTZ_water" # Folder that contains data the files
+DATA_FOLDER = "/home/lpetersen/dftb-nn/data/B3LYP_def2-TZVPP_vacuum" # Folder that contains data the files
 GEOMETRY_FILE = "geoms.xyz" # path to geometry-file, gromacs-format, in Angstrom
 ENERGY_FILE = "energy_diff.txt" # path to energy-file, no header, separated by new lines, in Hartree
 CHARGE_FILE = "charges_hirsh.txt" # path to charge-file, one line per molecule geometry,  "" if not available, in elementary charges
 ESP_FILE = "" # path to esp caused by mm atoms, one line per molecule geometry, "" if not available, in V
 AT_COUNT = 15 # atom count, used if no charges supplied
+CUTOFF = 10.0 # Max distance for bonds and angles to be considered relevant, None if not available, in Angstrom, default 10, CONSIDER CUTOFF IN YOUR SYMMETRY FUNCTIONS
 FORCE_FILE = "forces.xyz" # path to force-file, "" if not available, in Eh/Bohr, apparently given like that from Orca
 TOTAL_CHARGE = -1 # total charge of molecule, None if not available, different charges not supported
 PREFIX = "ThiolDisulfidExchange" # prefix to generated files, compulsary for kgcnn read-in
-TARGET_FOLDER = "B3LYP_aug-cc-pVTZ_water" # target folder to save the data, gets redirected to a file in this files location
+TARGET_FOLDER = "B3LYP_def2-TZVPP_vacuum" # target folder to save the data, gets redirected to a file in this files location
 
 BABEL_DATADIR = "/usr/local/run/openbabel-2.4.1" # local installation of openbabel
 
@@ -52,14 +53,14 @@ def make_and_write_csv(energy_path: str, total_charge: int, prefix: str, target_
         df["total_charge"] = np.ones_like(df["energy"], dtype=float)*total_charge
         df.to_csv(join(target_path,f"{prefix}.csv"), index=False, header=True, sep=',')
     
-def prepare_kgcnn_dataset(data_directory: str, dataset_name: str) -> None:
+def prepare_kgcnn_dataset(data_directory: str, dataset_name: str, cutoff: float) -> None:
     file_name=f"{dataset_name}.csv"
     
     dataset = QMDataset(data_directory=data_directory, file_name=file_name, dataset_name=dataset_name)
     dataset.prepare_data(overwrite=True, make_sdf = True)
     dataset.read_in_memory(label_column_name="energy", additional_callbacks = {'total_charge': lambda mg, dd: dd['total_charge']})
     
-    dataset.map_list(method="set_range", max_distance=5.0)
+    dataset.map_list(method="set_range", max_distance=cutoff+1.0)
     dataset.map_list(method="set_angle")
     
     # Distancs in a.u.
@@ -112,14 +113,17 @@ if __name__ == "__main__":
         exit()
     else:
         print(f"Warning: Existing data in {target_path} was overwritten")
-        
+
     geometry_path = join(DATA_FOLDER, GEOMETRY_FILE)
     energy_path = join(DATA_FOLDER, ENERGY_FILE)
     charge_path = join(DATA_FOLDER, CHARGE_FILE)
     esp_path = join(DATA_FOLDER, ESP_FILE)
     force_path = join(DATA_FOLDER, FORCE_FILE)
+
+    if CUTOFF is None:
+        CUTOFF = 10.0
     
     copy_data(geometry_path=geometry_path, charge_path=charge_path, esp_path=esp_path, force_path=force_path, prefix=PREFIX, target_path=target_path)
     make_and_write_csv(energy_path=energy_path, total_charge=TOTAL_CHARGE, prefix=PREFIX, target_path=target_path)
     
-    prepare_kgcnn_dataset(data_directory=target_path, dataset_name=PREFIX)
+    prepare_kgcnn_dataset(data_directory=target_path, dataset_name=PREFIX, cutoff=CUTOFF)

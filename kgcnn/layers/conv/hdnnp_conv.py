@@ -213,10 +213,9 @@ class CENTCharge(GraphBaseLayer):
         chi_pad = tf.pad(chi_pad, [[0, 0], [0, 1]], mode='CONSTANT', constant_values=0)
 
         # Add total charge and Lagrange multipliers to A.
-        qtot_indices = tf.cast(tf.concat([
-            tf.expand_dims(tf.range(tf.shape(chi_pad)[0], dtype=num_atoms.dtype), axis=-1),
-            tf.expand_dims(num_atoms, axis=-1)
-        ], axis=-1), dtype="int32")
+        qtot_indices = tf.cast(
+            tf.stack([tf.range(tf.shape(chi_pad)[0], dtype=num_atoms.dtype), num_atoms], axis=1), 
+            dtype="int32")
         chi_pad = tf.tensor_scatter_nd_add(
             chi_pad,
             qtot_indices,
