@@ -30,6 +30,7 @@ def plot_train_test_loss(histories: list, loss_name: str = None,
     Returns:
         matplotlib.pyplot.figure: Figure of the training curves.
     """
+    X_MIN = 5
     histories = [hist.history if isinstance(hist, tf.keras.callbacks.History) else hist for hist in histories]
     # We assume multiple fits as in KFold.
     if data_unit is None:
@@ -79,6 +80,8 @@ def plot_train_test_loss(histories: list, loss_name: str = None,
                     )
     plt.xlabel('Epochs')
     plt.ylabel('Loss')
+    plt.xlim(left=X_MIN)
+    plt.ylim(top=np.max(np.mean(x[X_MIN:], axis=0))) # this way only based on the last split, but whatever
     plt.title(dataset_name + " training curve for " + model_name)
     plt.legend(loc='upper right', fontsize='small')
     if filepath is not None:

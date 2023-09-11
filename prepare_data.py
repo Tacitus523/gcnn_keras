@@ -7,17 +7,18 @@ import warnings
 
 OVERWRITE = True # Set to True to enforce the writing in TARGET_FOLDER possibly overwriting data
 
-DATA_FOLDER = "/home/lpetersen/dftb-nn/data/B3LYP_def2-TZVPP_vacuum" # Folder that contains data the files
+DATA_FOLDER = "/home/lpetersen/dftb-nn/data/B3LYP_aug-cc-pVTZ_water" # Folder that contains data the files
 GEOMETRY_FILE = "geoms.xyz" # path to geometry-file, gromacs-format, in Angstrom
 ENERGY_FILE = "energy_diff.txt" # path to energy-file, no header, separated by new lines, in Hartree
 CHARGE_FILE = "charges_hirsh.txt" # path to charge-file, one line per molecule geometry,  "" if not available, in elementary charges
-ESP_FILE = "" # path to esp caused by mm atoms, one line per molecule geometry, "" if not available, in V
+ESP_FILE = "esps_by_mm.txt" # path to esp caused by mm atoms, one line per molecule geometry, "" if not available, in V
+ESP_GRAD_FILE = "esp_gradients.txt" # path to the ESP gradients, "" if not available, in Eh/Bohr, I hope
 AT_COUNT = 15 # atom count, used if no charges supplied
 CUTOFF = 10.0 # Max distance for bonds and angles to be considered relevant, None if not available, in Angstrom, default 10, CONSIDER CUTOFF IN YOUR SYMMETRY FUNCTIONS
 FORCE_FILE = "forces.xyz" # path to force-file, "" if not available, in Eh/Bohr, apparently given like that from Orca
 TOTAL_CHARGE = -1 # total charge of molecule, None if not available, different charges not supported
 PREFIX = "ThiolDisulfidExchange" # prefix to generated files, compulsary for kgcnn read-in
-TARGET_FOLDER = "B3LYP_def2-TZVPP_vacuum" # target folder to save the data, gets redirected to a file in this files location
+TARGET_FOLDER = "B3LYP_aug-cc-pVTZ_water" # target folder to save the data, gets redirected to a file in this files location
 
 BABEL_DATADIR = "/usr/local/run/openbabel-2.4.1" # local installation of openbabel
 
@@ -30,12 +31,14 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 from kgcnn.data.base import MemoryGraphDataset
 from kgcnn.data.qm import QMDataset
 
-def copy_data(geometry_path: str, charge_path: str, esp_path: str, force_path: str, prefix: str, target_path: str) -> None:
+def copy_data(geometry_path: str, charge_path: str, esp_path: str, esp_grad_path: str, force_path: str, prefix: str, target_path: str) -> None:
     shutil.copyfile(geometry_path, join(target_path, f"{prefix}.xyz"))
     if os.path.isfile(charge_path):
         shutil.copyfile(charge_path, join(target_path, f"charges.txt"))
     if os.path.isfile(esp_path):
         shutil.copyfile(esp_path, join(target_path, f"esps_by_mm.txt"))
+    if os.path.isfile(esp_grad_path):
+        shutil.copyfile(esp_grad_path, join(target_path, f"esp_gradients.txt"))
     if os.path.isfile(force_path):
         shutil.copyfile(force_path, join(target_path, f"forces.xyz"))
 
@@ -101,6 +104,18 @@ def prepare_kgcnn_dataset(data_directory: str, dataset_name: str, cutoff: float)
         for i in range(len(dataset)):
             dataset[i].set("esp", np.zeros_like(dataset[i]["node_number"], dtype=np.float64))
         print("Vacuum")
+
+    esp_grad_path = os.path.join(os.path.normpath(os.path.dirname(dataset.file_path)), "esp_gradients.txt")
+    try:
+        esp_grads = np.loadtxt(esp_grad_path)
+        esp_grads = esp_grads.reshape((-1, at_count, 3))
+        for i in range(len(dataset)):
+            dataset[i].set("esp_grad", esp_grads[i])
+        print("Got ESP Gradient")
+    except:
+        for i in range(len(dataset)):
+            dataset[i].set("esp_grad", np.zeros_like(dataset[i]["force"], dtype=np.float64))
+        print("No ESP Gradient")
         
     dataset.save()
 
@@ -118,12 +133,13 @@ if __name__ == "__main__":
     energy_path = join(DATA_FOLDER, ENERGY_FILE)
     charge_path = join(DATA_FOLDER, CHARGE_FILE)
     esp_path = join(DATA_FOLDER, ESP_FILE)
+    esp_grad_path = join(DATA_FOLDER, ESP_GRAD_FILE)
     force_path = join(DATA_FOLDER, FORCE_FILE)
 
     if CUTOFF is None:
         CUTOFF = 10.0
     
-    copy_data(geometry_path=geometry_path, charge_path=charge_path, esp_path=esp_path, force_path=force_path, prefix=PREFIX, target_path=target_path)
+    copy_data(geometry_path=geometry_path, charge_path=charge_path, esp_path=esp_path, esp_grad_path=esp_grad_path, force_path=force_path, prefix=PREFIX, target_path=target_path)
     make_and_write_csv(energy_path=energy_path, total_charge=TOTAL_CHARGE, prefix=PREFIX, target_path=target_path)
     
     prepare_kgcnn_dataset(data_directory=target_path, dataset_name=PREFIX, cutoff=CUTOFF)
