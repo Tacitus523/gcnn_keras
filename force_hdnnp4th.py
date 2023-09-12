@@ -73,7 +73,7 @@ model_config = {
                {"shape": (None, 3), "name": "angle_indices_nodes", "dtype": "int64", "ragged": True},
                {"shape": (1,), "name": "total_charge", "dtype": "float32", "ragged": False},
                {"shape": (None,), "name": "esp", "dtype": "float32", "ragged": True},
-               {"shape": (None, 3), "name": "esp_gradient", "dtype": "float32", "ragged": True}],
+               {"shape": (None, 3), "name": "esp_grad", "dtype": "float32", "ragged": True}],
     "g2_kwargs": {"eta": eta_array, "rs": Rs_array, "rc": cutoff_rad, "elements": elemental_mapping},
     "g4_kwargs": {"eta": eta_ang_array, "zeta": zeta_array, "lamda": lambd_array, "rc": cutoff_ang
                   , "elements": elemental_mapping, "multiplicity": 2.0},

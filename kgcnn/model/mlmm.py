@@ -94,7 +94,7 @@ class MLMMEnergyForceModel(ks.models.Model):
         if qmmm_force_kwargs is None:
             qmmm_force_kwargs = {}
 
-        self.force_model = model_force
+        self.model_force = model_force
 
 
         # Additional parameters of io and behavior of this class.
@@ -119,7 +119,7 @@ class MLMMEnergyForceModel(ks.models.Model):
         esp_input = inputs[self.esp_input]
         esp_grad_input = inputs[self.esp_grad_input]
 
-        qm_outputs = self.force_model(inputs)
+        qm_outputs = self.model_force(inputs)
         qm_charge = qm_outputs[self.charge_energy_force_output[0]]
         qm_energy = qm_outputs[self.charge_energy_force_output[1]] 
         qm_force = qm_outputs[self.charge_energy_force_output[2]]
@@ -131,9 +131,9 @@ class MLMMEnergyForceModel(ks.models.Model):
         total_force = qm_force + qmmm_force
 
         total_outputs = [qm_output for qm_output in qm_outputs]
+        total_outputs[self.charge_energy_force_output[0]] = qm_charge.to_tensor()
         total_outputs[self.charge_energy_force_output[1]] = total_energy
-        total_outputs[self.charge_energy_force_output[2]] = total_force
-
+        total_outputs[self.charge_energy_force_output[2]] = total_force.to_tensor()
         return total_outputs
         
 
