@@ -269,7 +269,7 @@ def make_model_behler_charge_separat(inputs: list = None,
             out = MLP(**output_mlp)(eng_total)
     elif output_embedding == 'charge':
         out = q_local
-    elif output_embedding == 'charge+total_energy':
+    elif output_embedding == 'charge+qm_energy':
         out = [q_local.to_tensor(), eng_total]
     else:
         raise ValueError("Unsupported output embedding for mode `HDNNP4th`")

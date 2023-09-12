@@ -42,7 +42,7 @@ args = ap.parse_args()
 if args.gpuid is not None:
     set_devices_gpu([args.gpuid])
 
-data_directory = os.path.join(os.path.dirname(__file__), data_directory)
+data_directory = os.path.join(os.path.dirname(__file__), os.path.normpath(data_directory))
 dataset = MemoryGraphDataset(data_directory=data_directory, dataset_name=dataset_name)
 dataset.load()
 #dataset=dataset[:10]
@@ -72,7 +72,8 @@ model_config = {
                {"shape": (None, 2), "name": "range_indices", "dtype": "int64", "ragged": True},
                {"shape": (None, 3), "name": "angle_indices_nodes", "dtype": "int64", "ragged": True},
                {"shape": (1,), "name": "total_charge", "dtype": "float32", "ragged": False},
-               {"shape": (None,), "name": "esp", "dtype": "float32", "ragged": True}],
+               {"shape": (None,), "name": "esp", "dtype": "float32", "ragged": True},
+               {"shape": (None, 3), "name": "esp_gradient", "dtype": "float32", "ragged": True}],
     "g2_kwargs": {"eta": eta_array, "rs": Rs_array, "rc": cutoff_rad, "elements": elemental_mapping},
     "g4_kwargs": {"eta": eta_ang_array, "zeta": zeta_array, "lamda": lambd_array, "rc": cutoff_ang
                   , "elements": elemental_mapping, "multiplicity": 2.0},
@@ -88,7 +89,7 @@ model_config = {
     "qmmm_kwargs": {"name": "qmmm_layer"},
     "node_pooling_args": {"pooling_method": "sum"},
     "verbose": 10,
-    "output_embedding": "charge+total_energy", "output_to_tensor": True,
+    "output_embedding": "charge+qm_energy", "output_to_tensor": True,
     "use_output_mlp": False,
     "output_mlp": {"use_bias": [True, True], "units": [64, 1],
                    "activation": ["swish", "linear"]}

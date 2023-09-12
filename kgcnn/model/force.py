@@ -57,7 +57,7 @@ class EnergyForceModel(ks.models.Model):
     def __init__(self,
                  model_energy=None,
                  coordinate_input: Union[int, str] = 1,
-                 energy_output: Union[int, str] = 0,
+                 energy_output: Union[int, str] = 1,
                  output_as_dict: bool = True,
                  ragged_validate: bool = False,
                  output_to_tensor: bool = True,

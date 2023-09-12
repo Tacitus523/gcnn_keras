@@ -444,7 +444,7 @@ class ElectrostaticEnergyGaussCharge(GraphBaseLayer):
     
 @ks.utils.register_keras_serializable(package='kgcnn', name='ElectrostaticQMMMEnergyPointCharge')
 class ElectrostaticQMMMEnergyPointCharge(GraphBaseLayer):
-    r"""Compute QM/MM interation electricstatic energy with point charges and ESP of MM-atoms on QM-atoms :math:`{\Phi}` as
+    r"""Compute QM/MM interation electrostatic energy with point charges and ESP of MM-atoms on QM-atoms :math:`{\Phi}` as
 
     .. math::
 
@@ -509,6 +509,69 @@ class ElectrostaticQMMMEnergyPointCharge(GraphBaseLayer):
         config = super(ElectrostaticQMMMEnergyPointCharge, self).get_config()
         config.update({
             "add_eps": self.add_eps
+        })
+        return config
+    
+@ks.utils.register_keras_serializable(package='kgcnn', name='ElectrostaticQMMMForcePointCharge')
+class ElectrostaticQMMMForcePointCharge(GraphBaseLayer):
+    r"""Compute QM/MM interation electrostatic force with point charges and derivation of ESP
+        of MM-atoms on QM-atoms :math:`{\Phi}` w.r.t. position via the Coulomb law as
+
+    .. math::
+
+        {\vec{F}}_{{\rm{elec}},{i}}={Q}_{i}{\frac{\partial \Phi_{i}}{\partial \vec{r}_{i}}}=\,
+        {Q}_{i}\mathop{\sum }\limits_{j=1}^{{N}_{{\rm{{at}_{MM}}}}}
+        \frac{{-Q}_{j}}{{r}_{ij}^{2}}\frac{\vec{r}_{ij}}{{r}_{ij}} .
+
+    Example of using this layer:
+
+    .. code-block:: python
+
+        import tensorflow as tf
+        from kgcnn.layers.conv.hdnnp_conv import ElectrostaticQMMMForcePointCharge
+        layer = ElectrostaticQMMMForcePointCharge()
+        q = tf.ragged.constant([[0.43, 0.37], [0.43, 0.43, 0.37]], ragged_rank=1)
+        esp_grad = tf.ragged.constant([[[0.1, 0.2, 0.3], [-0.1, -0.2, -0.3]], [[0.1, 0.2, 0.3], [-0.1, -0.2, -0.3], [0.2, 0.3, 0.4]]], ragged_rank=1)
+        qmmm_force = layer([q, esp])
+        print(qmmm_force)
+
+    """
+
+    def __init__(self, **kwargs):
+        super(ElectrostaticQMMMForcePointCharge, self).__init__(**kwargs)
+        self.layer_exp_dims = ExpandDims(axis=2)
+
+    def build(self, input_shape):
+        super(ElectrostaticQMMMForcePointCharge, self).build(input_shape)
+        
+    @staticmethod
+    def _compute_energy(inputs):
+        q, esp_grad = inputs
+        return q*esp_grad
+
+    def call(self, inputs, **kwargs):
+        r"""Forward pass.
+
+        Args:
+            inputs (list): [q, esp_grad]
+
+                - q (tf.RaggedTensor): Learned atomic charges. Shape (batch, [N], 1)
+                - esp_grad (tf.RaggedTensor): gradient of esp of MM-zone on atom. Shape (batch, [N], 3)
+
+        Returns:
+            tf.Tensor: Energy of shape (batch, 1)
+
+        """
+        q, esp_grad = self.assert_ragged_input_rank(inputs, mask=None, ragged_rank=1)
+        if q.shape.rank <= 2:
+            q = self.layer_exp_dims(q, **kwargs)
+
+        force = self.map_values(self._compute_energy, [q, esp_grad])
+        return force
+
+    def get_config(self):
+        config = super(ElectrostaticQMMMForcePointCharge, self).get_config()
+        config.update({
         })
         return config
 
