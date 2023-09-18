@@ -80,8 +80,11 @@ def plot_train_test_loss(histories: list, loss_name: str = None,
                     )
     plt.xlabel('Epochs')
     plt.ylabel('Loss')
+    train_loss_array = np.stack(train_loss, axis=0)
+    if train_loss_array.shape[2] < X_MIN:
+        X_MIN = 0
     plt.xlim(left=X_MIN)
-    plt.ylim(top=np.max(np.mean(x[:, X_MIN:], axis=1))) # this way only based on the train split, but whatever
+    plt.ylim(top=np.max(train_loss_array[:, :, X_MIN:]), bottom=0)
     plt.title(dataset_name + " training curve for " + model_name)
     plt.legend(loc='upper right', fontsize='small')
     if filepath is not None:
