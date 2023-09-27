@@ -124,7 +124,7 @@ class EnergyForceModel(ks.models.Model):
         # Layers.
         self.cast_coordinates = ChangeTensorType(input_tensor_type="ragged", output_tensor_type="mask")
 
-    def call(self, inputs, training=False, **kwargs):
+    def call(self, inputs, **kwargs):
         """Forward pass that wraps energy model in gradient tape.
 
         Args:
@@ -140,7 +140,7 @@ class EnergyForceModel(ks.models.Model):
         # x is ragged tensor of shape (batch, [N], 3) with cartesian coordinates.
         # `batch_jacobian` does not yet support ragged tensor input.
         # Cast to masked tensor for coordinates only.
-        x_pad, x_mask = self.cast_coordinates(x, training=training, **kwargs)  # (batch, N, 3), (batch, N, 3)
+        x_pad, x_mask = self.cast_coordinates(x, **kwargs)  # (batch, N, 3), (batch, N, 3)
         with tf.GradientTape() as tape:
             tape.watch(x_pad)
             # Temporary solution for casting.
@@ -149,7 +149,7 @@ class EnergyForceModel(ks.models.Model):
             inputs_energy[self.coordinate_input] = x_pad_to_ragged
             # Predict energy.
             # Energy must be tensor of shape (batch, states)
-            outputs = self.energy_model(inputs_energy, training=training, **kwargs)
+            outputs = self.energy_model(inputs_energy, **kwargs)
             if isinstance(outputs, list):
                 eng = outputs[self.energy_output]
             else:

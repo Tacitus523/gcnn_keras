@@ -110,7 +110,7 @@ class MLMMEnergyForceModel(ks.models.Model):
         """Forward pass that applies qmmm electrostatic interaction to energy and force predictions.
 
         Args:
-            inputs (list, dict): Must be list of (tensor) input for energy model.
+            inputs (list, dict): Must be list of (tensor) input for force model.
                 Index or key to find coordinates must be provided.
 
         Returns:
@@ -119,7 +119,7 @@ class MLMMEnergyForceModel(ks.models.Model):
         esp_input = inputs[self.esp_input]
         esp_grad_input = inputs[self.esp_grad_input]
 
-        qm_outputs = self.model_force(inputs)
+        qm_outputs = self.model_force(inputs, **kwargs)
         qm_charge = qm_outputs[self.charge_energy_force_output[0]]
         qm_energy = qm_outputs[self.charge_energy_force_output[1]] 
         qm_force = qm_outputs[self.charge_energy_force_output[2]]

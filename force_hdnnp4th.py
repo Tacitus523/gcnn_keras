@@ -27,9 +27,11 @@ from kgcnn.utils.plots import plot_predict_true, plot_train_test_loss, plot_test
 from kgcnn.utils.devices import set_devices_gpu
 from kgcnn.utils import constants
 from kgcnn.model.force import EnergyForceModel
+from kgcnn.model.mlmm import MLMMEnergyForceModel
 from kgcnn.metrics.loss import RaggedMeanAbsoluteError
 
 data_directory="data/B3LYP_aug-cc-pVTZ_water/"
+#data_directory="data/B3LYP_def2-TZVPP_water/"
 dataset_name="ThiolDisulfidExchange"
 
 file_name=f"{dataset_name}.csv"
@@ -48,11 +50,15 @@ dataset.load()
 #dataset=dataset[:10]
 print(dataset[0].keys())
 
-# to inverse force data
-for i in range(len(dataset)):
-    dataset[i].set("force", -1*dataset[i]["force"])
+# # to inverse force data
+# for i in range(len(dataset)):
+#     dataset[i].set("force", -1*dataset[i]["force"])
 
-elemental_mapping = [1,6,16]
+# to inverse esp grad
+for i in range(len(dataset)):
+    dataset[i].set("esp_grad", -1*dataset[i]["esp_grad"])
+
+elemental_mapping = [1, 6, 16]
 
 # Radial parameters
 cutoff_rad = 20
@@ -108,7 +114,10 @@ for i in range(len(inputs)):
     print(f"Shape {model_config['inputs'][i]['name']}:", inputs[i].shape)
 
 
-# Scaling energy and forces.
+# # Scaling energy and forces.
+# means_and_stds = [(0,1),
+#                   (np.mean(np.array(dataset.get("graph_labels"))), np.std(np.array(dataset.get("graph_labels")))),
+#                   (np.mean(np.array(dataset.get("force"))), np.std(np.array(dataset.get("force"))))]
 # scaler = EnergyForceExtensiveLabelScaler()
 # scaler_mapping = {"atomic_number": "node_number", "y": ["graph_labels", "force"]}
 # scaler.fit_transform_dataset(dataset, **scaler_mapping)
@@ -157,10 +166,18 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
         energy_output = 1,
         output_to_tensor = True,
         output_as_dict = False,
-        output_squeeze_states = True
+        output_squeeze_states = True,
+        is_physical_force = False
     )
 
-    model_energy_force.compile(
+    model_mlmm = MLMMEnergyForceModel(
+        model_force = model_energy_force,
+        esp_input = 5,
+        esp_grad_input = 6,
+        charge_energy_force_output = [0,1,2]
+    )
+
+    model_mlmm.compile(
         loss=[zero_loss_function, "mean_squared_error", "mean_squared_error"],
         optimizer=ks.optimizers.Adam(),
         metrics=None,
@@ -174,7 +191,7 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
         learning_rate_start=1e-3, learning_rate_stop=1e-8, epo_min=0, epo=1000)
     
     start = time.process_time()
-    hist = model_energy_force.fit(
+    hist = model_mlmm.fit(
         x_train, y_train,
         callbacks=[scheduler
         ],
@@ -188,19 +205,19 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
     hists.append(hist)
 
 model_energy.summary()
-model_energy_force.save("model_energy_force")
+model_mlmm.save("model_mlmm")
 
 #scaler.inverse_transform_dataset(dataset, **scaler_mapping)
 true_charge = np.array(dataset[test_index].get("charge")).reshape(-1,1)
-true_energy = np.array(dataset[test_index].get("graph_labels"))*constants.hartree_to_kcalmol
+true_energy = np.array(dataset[test_index].get("graph_labels")).reshape(-1,1)*constants.hartree_to_kcalmol
 true_force = np.array(dataset[test_index].get("force")).reshape(-1,1)
-predicted_charge, predicted_energy, predicted_force = model_energy_force.predict(x_test, verbose=0)
-# predicted_energy, predicted_force = scaler.inverse_transform(
-#     y=(predicted_energy, predicted_force), X=dataset[test_index].get("node_number"))
+predicted_charge, predicted_energy, predicted_force = model_mlmm.predict(x_test, verbose=0)
+del model_mlmm
+#predicted_energy, predicted_force = scaler.inverse_transform(
+#    y=(predicted_energy.flatten(), predicted_force), X=dataset[test_index].get("node_number"))
 predicted_charge = np.array(predicted_charge).reshape(-1,1)
-predicted_energy = np.array(predicted_energy)*constants.hartree_to_kcalmol
+predicted_energy = np.array(predicted_energy).reshape(-1,1)*constants.hartree_to_kcalmol
 predicted_force = np.array(predicted_force).reshape(-1,1)
-
 
 plot_predict_true(predicted_charge, true_charge,
     filepath="", data_unit="e",

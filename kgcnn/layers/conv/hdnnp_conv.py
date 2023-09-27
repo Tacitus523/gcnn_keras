@@ -545,7 +545,7 @@ class ElectrostaticQMMMForcePointCharge(GraphBaseLayer):
         super(ElectrostaticQMMMForcePointCharge, self).build(input_shape)
         
     @staticmethod
-    def _compute_energy(inputs):
+    def _compute_grad(inputs):
         q, esp_grad = inputs
         return q*esp_grad
 
@@ -566,7 +566,7 @@ class ElectrostaticQMMMForcePointCharge(GraphBaseLayer):
         if q.shape.rank <= 2:
             q = self.layer_exp_dims(q, **kwargs)
 
-        force = self.map_values(self._compute_energy, [q, esp_grad])
+        force = self.map_values(self._compute_grad, [q, esp_grad])
         return force
 
     def get_config(self):

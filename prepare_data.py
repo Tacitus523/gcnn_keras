@@ -114,7 +114,7 @@ def prepare_kgcnn_dataset(data_directory: str, dataset_name: str, cutoff: float)
         print("Got ESP Gradient")
     except:
         for i in range(len(dataset)):
-            dataset[i].set("esp_grad", np.zeros_like(dataset[i]["force"], dtype=np.float64))
+            dataset[i].set("esp_grad", np.zeros_like(dataset[i]["node_coordinates"], dtype=np.float64))
         print("No ESP Gradient")
         
     dataset.save()
