@@ -1,6 +1,7 @@
 import tensorflow as tf
 from typing import Union
 from kgcnn.layers.casting import ChangeTensorType
+from kgcnn.layers.modules import ExpandDims
 from kgcnn.model.utils import get_model_class
 
 ks = tf.keras
@@ -57,6 +58,8 @@ class EnergyForceModel(ks.models.Model):
     def __init__(self,
                  model_energy=None,
                  coordinate_input: Union[int, str] = 1,
+                 esp_input: Union[int, str] = None,
+                 esp_grad_input: Union[int, str] = None,
                  energy_output: Union[int, str] = 1,
                  output_as_dict: bool = True,
                  ragged_validate: bool = False,
@@ -68,7 +71,7 @@ class EnergyForceModel(ks.models.Model):
         r"""Initialize :obj:`EnergyForceModel` with sub-model for energy prediction.
 
         This wrapper model was designed for models in `kgcnn.literature` that predict energy from geometric
-        information.
+        information and precalculated esp-values.
 
         .. note::
 
@@ -79,6 +82,8 @@ class EnergyForceModel(ks.models.Model):
         Args:
             model_energy (dict): Keras model for energy prediction. Can also be a serialization dict.
             coordinate_input (str, int): Index or key where to find coordinate tensor in model input.
+            esp_input (str, int): Index or key where to find esp tensor in model input. Optional
+            esp_grad_input (str, int): Index or key where to find esp gradient tensor in model input. Optional
             energy_output (str, int): Index or key where to find coordinate tensor in model input.
             output_as_dict (bool): Whether to return energy and force as list or as dict. Default is True.
             ragged_validate (bool): Whether to validate ragged tensor creation. Default is False.
@@ -114,6 +119,8 @@ class EnergyForceModel(ks.models.Model):
         # Additional parameters of io and behavior of this class.
         self.ragged_validate = ragged_validate
         self.coordinate_input = coordinate_input
+        self.esp_input = esp_input
+        self.esp_grad_input = esp_grad_input
         self.energy_output = energy_output
         self.output_as_dict = output_as_dict
         self.output_to_tensor = output_to_tensor
@@ -123,6 +130,8 @@ class EnergyForceModel(ks.models.Model):
 
         # Layers.
         self.cast_coordinates = ChangeTensorType(input_tensor_type="ragged", output_tensor_type="mask")
+        self.cast_esp = ChangeTensorType(input_tensor_type="ragged", output_tensor_type="mask")
+        self.layer_exp_dims = ExpandDims(axis=-1)
 
     def call(self, inputs, **kwargs):
         """Forward pass that wraps energy model in gradient tape.
@@ -141,12 +150,22 @@ class EnergyForceModel(ks.models.Model):
         # `batch_jacobian` does not yet support ragged tensor input.
         # Cast to masked tensor for coordinates only.
         x_pad, x_mask = self.cast_coordinates(x, **kwargs)  # (batch, N, 3), (batch, N, 3)
-        with tf.GradientTape() as tape:
+        if self.esp_input is not None and self.esp_grad_input is not None:
+            esp = inputs[self.esp_input] # (batch, N)
+            desp_dr = inputs[self.esp_grad_input] # (batch, N, 3)
+            desp_dr_pad, desp_dr_mask = self.cast_coordinates(desp_dr, **kwargs)  # (batch, N, 3), (batch, N, 3)
+            desp_dr_pad = self.layer_exp_dims(desp_dr_pad) # (batch, N, 3, states)
+            esp_pad, esp_mask = self.cast_esp(esp, **kwargs) # (batch, N), (batch, N)
+        with tf.GradientTape(persistent=True) as tape:
             tape.watch(x_pad)
             # Temporary solution for casting.
             # Cast back to ragged tensor for model input.
             x_pad_to_ragged = self._cast_coordinates_pad_to_ragged(x_pad, x_mask, self.ragged_validate)
             inputs_energy[self.coordinate_input] = x_pad_to_ragged
+            if self.esp_input is not None and self.esp_grad_input is not None:
+                tape.watch(esp_pad)
+                esp_pad_to_ragged = self._cast_esp_pad_to_ragged(esp_pad, esp_mask, self.ragged_validate)
+                inputs_energy[self.esp_input] = esp_pad_to_ragged
             # Predict energy.
             # Energy must be tensor of shape (batch, states)
             outputs = self.energy_model(inputs_energy, **kwargs)
@@ -154,21 +173,32 @@ class EnergyForceModel(ks.models.Model):
                 eng = outputs[self.energy_output]
             else:
                 eng = outputs
-        e_grad = tape.batch_jacobian(eng, x_pad)
-        e_grad = tf.transpose(e_grad, perm=[0, 2, 3, 1])
+        de_dr = tape.batch_jacobian(eng, x_pad) # (batch, states)x(batch, N, 3) = (batch, states, N, 3)
+        de_dr = tf.transpose(de_dr, perm=[0, 2, 3, 1]) # (batch, N, 3, states)
+
+        if self.esp_input is not None and self.esp_grad_input is not None:
+            de_desp = tape.batch_jacobian(eng, esp_pad)
+            de_desp = ExpandDims(axis=-1)(de_desp)
+            de_desp = tf.transpose(de_desp, perm=[0, 2, 3, 1])
+            de_dr = de_dr + de_desp*desp_dr_pad
+
         if self.is_physical_force:
-            e_grad = -e_grad
+            de_dr = -de_dr
         if self.output_squeeze_states:
-            e_grad = tf.squeeze(e_grad, axis=-1)
+            de_dr = tf.squeeze(de_dr, axis=-1)
         if not self.output_to_tensor:
-            e_grad = self._cast_coordinates_pad_to_ragged(e_grad, x_mask, self.ragged_validate)
+            de_dr = self._cast_coordinates_pad_to_ragged(de_dr, x_mask, self.ragged_validate)
+        elif isinstance(outputs, list):
+            for index, output in enumerate(outputs):
+                if isinstance(output, tf.RaggedTensor):
+                    outputs[index] = output.to_tensor()
         if self.output_as_dict:
-            return {"energy": eng, "force": e_grad}
+            return {"energy": eng, "force": de_dr}
         else:
             if isinstance(outputs, list):
-                outputs.append(e_grad)
+                outputs.append(de_dr)
                 return outputs
-            return outputs, e_grad
+            return outputs, de_dr
 
     # Temporary solution.
     @staticmethod
@@ -179,6 +209,14 @@ class EnergyForceModel(ks.models.Model):
         x_values = x_pad[x_mask_number]
         x_row_length = tf.reduce_sum(tf.cast(x_mask_number, dtype="int64"), axis=-1)
         return tf.RaggedTensor.from_row_lengths(x_values, x_row_length, validate=validate)
+
+    @staticmethod
+    @tf.function
+    def _cast_esp_pad_to_ragged(esp_pad, esp_mask, validate):
+        esp_mask_number = tf.cast(esp_mask, dtype="bool")  # (batch, N)
+        esp_values = esp_pad[esp_mask_number]
+        esp_row_length = tf.reduce_sum(tf.cast(esp_mask_number, dtype="int64"), axis=-1)
+        return tf.RaggedTensor.from_row_lengths(esp_values, esp_row_length, validate=validate)
 
     def get_config(self):
         """Get config."""
@@ -193,6 +231,8 @@ class EnergyForceModel(ks.models.Model):
         conf.update({
             "model_energy": model_energy,
             "coordinate_input": self.coordinate_input,
+            "esp_input": self.esp_input,
+            "esp_grad_input": self.esp_grad_input,
             "output_as_dict": self.output_as_dict,
             "ragged_validate": self.ragged_validate,
             "output_to_tensor": self.output_to_tensor,

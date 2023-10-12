@@ -27,7 +27,6 @@ from kgcnn.utils.plots import plot_predict_true, plot_train_test_loss, plot_test
 from kgcnn.utils.devices import set_devices_gpu
 from kgcnn.utils import constants
 from kgcnn.model.force import EnergyForceModel
-from kgcnn.model.mlmm import MLMMEnergyForceModel
 from kgcnn.metrics.loss import RaggedMeanAbsoluteError
 
 data_directory="data/B3LYP_aug-cc-pVTZ_water/"
@@ -164,20 +163,15 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
     model_energy_force = EnergyForceModel(
         model_energy = model_energy,
         energy_output = 1,
+        esp_input = 5,
+        esp_grad_input = 6,
         output_to_tensor = True,
         output_as_dict = False,
         output_squeeze_states = True,
         is_physical_force = False
     )
 
-    model_mlmm = MLMMEnergyForceModel(
-        model_force = model_energy_force,
-        esp_input = 5,
-        esp_grad_input = 6,
-        charge_energy_force_output = [0,1,2]
-    )
-
-    model_mlmm.compile(
+    model_energy_force.compile(
         loss=[zero_loss_function, "mean_squared_error", "mean_squared_error"],
         optimizer=ks.optimizers.Adam(),
         metrics=None,
@@ -191,7 +185,7 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
         learning_rate_start=1e-3, learning_rate_stop=1e-8, epo_min=0, epo=1000)
     
     start = time.process_time()
-    hist = model_mlmm.fit(
+    hist = model_energy_force.fit(
         x_train, y_train,
         callbacks=[scheduler
         ],
@@ -205,14 +199,14 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
     hists.append(hist)
 
 model_energy.summary()
-model_mlmm.save("model_mlmm")
+model_energy_force.save("model_energy_force")
 
 #scaler.inverse_transform_dataset(dataset, **scaler_mapping)
 true_charge = np.array(dataset[test_index].get("charge")).reshape(-1,1)
 true_energy = np.array(dataset[test_index].get("graph_labels")).reshape(-1,1)*constants.hartree_to_kcalmol
 true_force = np.array(dataset[test_index].get("force")).reshape(-1,1)
-predicted_charge, predicted_energy, predicted_force = model_mlmm.predict(x_test, verbose=0)
-del model_mlmm
+predicted_charge, predicted_energy, predicted_force = model_energy_force.predict(x_test, verbose=0)
+del model_energy_force
 #predicted_energy, predicted_force = scaler.inverse_transform(
 #    y=(predicted_energy.flatten(), predicted_force), X=dataset[test_index].get("node_number"))
 predicted_charge = np.array(predicted_charge).reshape(-1,1)
