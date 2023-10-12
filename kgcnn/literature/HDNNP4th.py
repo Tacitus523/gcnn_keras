@@ -140,13 +140,14 @@ def make_model_behler(inputs: list = None,
     q_local, eng_elec = CENTChargePlusElectrostaticEnergy(**cent_kwargs, **electrostatic_kwargs)(
          [node_input, chi_and_esp, xyz_input, edge_index_input, total_charge_input]
     )
-    eng_qmmm = ElectrostaticQMMMEnergyPointCharge(**qmmm_kwargs)([q_local, esp_input])
+    #eng_qmmm = ElectrostaticQMMMEnergyPointCharge(**qmmm_kwargs)([q_local, esp_input])
     
     rep_charge = LazyConcatenate()([rep_esp, q_local])
     local_node_energy = RelationalMLP(**mlp_local_kwargs)([rep_charge, node_input])
     eng_short = PoolingNodes(**node_pooling_args)(local_node_energy)
 
-    out = ks.layers.Add()([eng_short, eng_elec, eng_qmmm])
+    #out = ks.layers.Add()([eng_short, eng_elec, eng_qmmm])
+    out = ks.layers.Add()([eng_short, eng_elec])
 
     # Output embedding choice
     if output_embedding == 'graph' or output_embedding == 'total_energy':
@@ -272,7 +273,7 @@ def make_model_behler_charge_separat(inputs: list = None,
     elif output_embedding == 'charge':
         out = q_local
     elif output_embedding == 'charge+qm_energy':
-        out = [q_local, eng_total]
+        out = [q_local.to_tensor(), eng_total]
     else:
         raise ValueError("Unsupported output embedding for mode `HDNNP4th`")
 

@@ -27,6 +27,13 @@ data_directory = os.path.join(os.path.dirname(__file__), data_directory)
 dataset = MemoryGraphDataset(data_directory=data_directory, dataset_name=dataset_name)
 dataset.load()
 print(dataset[0].keys())
+poi = dataset[765]
+print(poi["node_coordinates"])
+print(len(poi["range_indices"]))
+print(len(poi["angle_indices_nodes"]))
+print(poi["esp"])
+print(poi["esp_grad"])
+exit()
 
 # to remove esp data
 # print("Setting ESP to 0")
