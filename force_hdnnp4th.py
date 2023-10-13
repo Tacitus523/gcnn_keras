@@ -53,9 +53,9 @@ print(dataset[0].keys())
 # for i in range(len(dataset)):
 #     dataset[i].set("force", -1*dataset[i]["force"])
 
-# to inverse esp grad
-for i in range(len(dataset)):
-    dataset[i].set("esp_grad", -1*dataset[i]["esp_grad"])
+# # to inverse esp grad
+# for i in range(len(dataset)):
+#     dataset[i].set("esp_grad", -1*dataset[i]["esp_grad"])
 
 elemental_mapping = [1, 6, 16]
 
@@ -90,7 +90,9 @@ model_config = {
                          "num_relations": 96,
                          "activation": ["tanh", "tanh", "linear"]},
     "cent_kwargs": {},
-    "electrostatic_kwargs": {"name": "electrostatic_layer"},
+    "electrostatic_kwargs": {"name": "electrostatic_layer",
+                             "use_physical_params": True,
+                             "param_trainable": False},
     "qmmm_kwargs": {"name": "qmmm_layer"},
     "node_pooling_args": {"pooling_method": "sum"},
     "verbose": 10,
@@ -159,7 +161,10 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
     charge_mlp_layer = model_energy.layers[10]
     assert "relational_mlp" in charge_mlp_layer.name, "This is not a relational MLP, double check your model"
     charge_mlp_layer.trainable = False
-    
+    electrostatic_layer = model_energy.layers[13]
+    assert "electrostatic_layer" in electrostatic_layer.name, "This is not an electrostatic_layer, double check your model"
+    electrostatic_layer.trainable = False
+
     model_energy_force = EnergyForceModel(
         model_energy = model_energy,
         energy_output = 1,
