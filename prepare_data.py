@@ -18,7 +18,7 @@ CUTOFF = 10.0 # Max distance for bonds and angles to be considered relevant, Non
 FORCE_FILE = "forces.xyz" # path to force-file, "" if not available, in Eh/Bohr, apparently given like that from Orca
 TOTAL_CHARGE = -1 # total charge of molecule, None if not available, different charges not supported
 PREFIX = "ThiolDisulfidExchange" # prefix to generated files, compulsary for kgcnn read-in
-TARGET_FOLDER = "B3LYP_aug-cc-pVTZ_water" # target folder to save the data, gets redirected to a file in this files location
+TARGET_FOLDER = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_water" # target folder to save the data
 
 BABEL_DATADIR = "/usr/local/run/openbabel-2.4.1" # local installation of openbabel
 
