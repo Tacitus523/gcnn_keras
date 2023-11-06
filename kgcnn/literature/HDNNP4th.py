@@ -44,10 +44,12 @@ model_default_behler = {
     "qmmm_kwargs": {"name": "qmmm_layer"},
     "node_pooling_args": {"pooling_method": "sum"},
     "verbose": 10,
-    "output_embedding": "graph", "output_to_tensor": True,
+    "output_embedding": "graph",
+    "output_to_tensor": True,
     "use_output_mlp": False,
     "output_mlp": {"use_bias": [True, True], "units": [64, 1],
-                   "activation": ["swish", "linear"]}
+                   "activation": ["swish", "linear"]},
+    "energy_mean_and_var": None
 }
 
 
@@ -67,7 +69,8 @@ def make_model_behler(inputs: list = None,
                       output_embedding: str = None,
                       use_output_mlp: bool = None,
                       output_to_tensor: bool = None,
-                      output_mlp: dict = None
+                      output_mlp: dict = None,
+                      energy_mean_and_var: tuple = None
                       ):
     r"""Make 4th generation `HDNNP <https://www.nature.com/articles/s41467-020-20427-2>`_ graph network via
     functional API.
@@ -105,6 +108,7 @@ def make_model_behler(inputs: list = None,
         output_to_tensor (bool): Whether to cast model output to :obj:`tf.Tensor`.
         output_mlp (dict): Dictionary of layer arguments unpacked in the final classification :obj:`MLP` layer block.
             Defines number of model outputs and activation.
+        energy_mean_and_var (tuple): Tuple of energy mean and variance for scaling of the output.
 
     Returns:
         :obj:`tf.keras.models.Model`
@@ -136,23 +140,25 @@ def make_model_behler(inputs: list = None,
 
     # Compute separately, meaning separate weights for sigma.
     # q_local = CENTCharge(**cent_kwargs)([node_input, chi, xyz_input, total_charge_input])
-    # eng_elec = ElectrostaticEnergyCharge(**electrostatic_kwargs)([node_input, q_local, xyz_input, edge_index_input])
+    # eng_elec = ElectrostaticEnergyGaussCharge(**electrostatic_kwargs)([node_input, q_local, xyz_input, edge_index_input])
     q_local, eng_elec = CENTChargePlusElectrostaticEnergy(**cent_kwargs, **electrostatic_kwargs)(
          [node_input, chi_and_esp, xyz_input, edge_index_input, total_charge_input]
     )
-    #eng_qmmm = ElectrostaticQMMMEnergyPointCharge(**qmmm_kwargs)([q_local, esp_input])
+    eng_qmmm = ElectrostaticQMMMEnergyPointCharge(**qmmm_kwargs)([q_local, esp_input])
     
     rep_charge = LazyConcatenate()([rep_esp, q_local])
     local_node_energy = RelationalMLP(**mlp_local_kwargs)([rep_charge, node_input])
     eng_short = PoolingNodes(**node_pooling_args)(local_node_energy)
 
-    #out = ks.layers.Add()([eng_short, eng_elec, eng_qmmm])
-    out = ks.layers.Add()([eng_short, eng_elec])
+    out = ks.layers.Add()([eng_short, eng_elec, eng_qmmm])
+    #out = ks.layers.Add()([eng_short, eng_elec])
 
     # Output embedding choice
     if output_embedding == 'graph' or output_embedding == 'total_energy':
         if use_output_mlp:
             out = MLP(**output_mlp)(out)
+        if energy_mean_and_var:
+            out = ks.layers.Normalization(mean=energy_mean_and_var[0], variance=energy_mean_and_var[1], invert=True)(out)
     elif output_embedding == 'charge':
         out = q_local
     elif output_embedding == 'electrostatic_energy':
@@ -182,7 +188,8 @@ def make_model_behler_charge_separat(inputs: list = None,
                       output_embedding: str = None,
                       use_output_mlp: bool = None,
                       output_to_tensor: bool = None,
-                      output_mlp: dict = None
+                      output_mlp: dict = None,
+                      energy_mean_and_var: tuple = None
                       ):
     r"""Make 4th generation `HDNNP <https://www.nature.com/articles/s41467-020-20427-2>`_ graph network via
     functional API.
@@ -221,6 +228,7 @@ def make_model_behler_charge_separat(inputs: list = None,
         output_to_tensor (bool): Whether to cast model output to :obj:`tf.Tensor`.
         output_mlp (dict): Dictionary of layer arguments unpacked in the final classification :obj:`MLP` layer block.
             Defines number of model outputs and activation.
+        energy_mean_and_var (tuple): Tuple of energy mean and variance for scaling of the output.
 
     Returns:
         :obj:`tf.keras.models.Model`, :obj:`tf.keras.models.Model`
@@ -270,9 +278,13 @@ def make_model_behler_charge_separat(inputs: list = None,
         out = eng_total
         if use_output_mlp:
             out = MLP(**output_mlp)(eng_total)
+        if energy_mean_and_var:
+            out = ks.layers.Normalization(mean=energy_mean_and_var[0], variance=energy_mean_and_var[1], invert=True)(out)
     elif output_embedding == 'charge':
         out = q_local
     elif output_embedding == 'charge+qm_energy':
+        if energy_mean_and_var:
+            eng_total = ks.layers.Normalization(mean=energy_mean_and_var[0], variance=energy_mean_and_var[1], invert=True)(eng_total)
         out = [q_local.to_tensor(), eng_total]
     else:
         raise ValueError("Unsupported output embedding for mode `HDNNP4th`")
@@ -392,8 +404,12 @@ def make_model_learn(inputs: list = None,
     # learnable NN.
     chi = RelationalMLP(**mlp_charge_kwargs)([rep_esp, node_input])
     chi_and_esp = ks.layers.Add()([chi, esp_expanded])
-    q_local = CENTCharge(**cent_kwargs)([node_input, chi_and_esp, xyz_input, total_charge_input])
-    eng_elec = ElectrostaticEnergyGaussCharge(**electrostatic_kwargs)([node_input, q_local, xyz_input, edge_index_input])
+    # Compute separately, meaning separate weights for sigma.
+    # q_local = CENTCharge(**cent_kwargs)([node_input, chi_and_esp, xyz_input, total_charge_input])
+    # eng_elec = ElectrostaticEnergyGaussCharge(**electrostatic_kwargs)([node_input, q_local, xyz_input, edge_index_input])
+    q_local, eng_elec = CENTChargePlusElectrostaticEnergy(**cent_kwargs, **electrostatic_kwargs)(
+        [node_input, chi_and_esp, xyz_input, edge_index_input, total_charge_input]
+    )
     eng_qmmm = ElectrostaticQMMMEnergyPointCharge(**qmmm_kwargs)([q_local, esp_input])
     rep_charge = LazyConcatenate(axis=2)([rep_esp, q_local])
     local_node_energy = RelationalMLP(**mlp_local_kwargs)([rep_charge, node_input])

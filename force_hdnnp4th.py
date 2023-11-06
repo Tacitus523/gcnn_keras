@@ -29,8 +29,9 @@ from kgcnn.utils import constants
 from kgcnn.model.force import EnergyForceModel
 from kgcnn.metrics.loss import RaggedMeanAbsoluteError
 
-data_directory="data/B3LYP_aug-cc-pVTZ_water/"
-#data_directory="data/B3LYP_def2-TZVPP_water/"
+data_directory="/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_combined/"
+#data_directory="/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_water/"
+#data_directory="/data/lpetersen/training_data/B3LYP_def2-TZVPP_water/"
 dataset_name="ThiolDisulfidExchange"
 
 file_name=f"{dataset_name}.csv"
@@ -49,16 +50,9 @@ dataset.load()
 #dataset=dataset[:10]
 print(dataset[0].keys())
 
-# # to inverse force data
-# for i in range(len(dataset)):
-#     dataset[i].set("force", -1*dataset[i]["force"])
-
-# # to inverse esp grad
-# for i in range(len(dataset)):
-#     dataset[i].set("esp_grad", -1*dataset[i]["esp_grad"])
-
 elemental_mapping = [1, 6, 16]
 
+# Standard Hyperparameters
 # Radial parameters
 cutoff_rad = 20
 Rs_array   = [0.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
@@ -69,6 +63,18 @@ cutoff_ang    = 12
 lambd_array   = [-1, 1]
 zeta_array    = [1, 2, 4, 8, 16]
 eta_ang_array = eta_array
+
+# # Hyperparameters from search
+# # Radial parameters
+# cutoff_rad = 20
+# Rs_array   = [0.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0]
+# eta_array  = [0.0, 0.06, 0.16, 0.32, 0.6, 0.8, 1.0]
+
+# # Angular parameters
+# cutoff_ang    = 8
+# lambd_array   = [-1, 0, 1]
+# zeta_array    = [2, 8, 16]
+# eta_ang_array = eta_array
 
 model_config = {
     "name": "HDNNP4th",
@@ -83,12 +89,20 @@ model_config = {
     "g4_kwargs": {"eta": eta_ang_array, "zeta": zeta_array, "lamda": lambd_array, "rc": cutoff_ang
                   , "elements": elemental_mapping, "multiplicity": 2.0},
     "normalize_kwargs": {},
-    "mlp_charge_kwargs": {"units": [15, 1],
-                          "num_relations": 96,
-                          "activation": ["tanh", "linear"]},
-    "mlp_local_kwargs": {"units": [35, 35, 1],
-                         "num_relations": 96,
-                         "activation": ["tanh", "tanh", "linear"]},
+    # # Original MLPs
+    # "mlp_charge_kwargs": {"units": [15, 1],
+    #                       "num_relations": 96,
+    #                       "activation": ["tanh", "linear"]},
+    # "mlp_local_kwargs": {"units": [35, 35, 1],
+    #                      "num_relations": 96,
+    #                      "activation": ["tanh", "tanh", "linear"]},
+    # Hyperparamter search MLPs
+    "mlp_charge_kwargs": {"units": [100, 100, 100, 1],
+                          "num_relations": 50,
+                          "activation": ["relu", "relu", "relu", "linear"]},
+    "mlp_local_kwargs": {"units": [100, 100, 100, 1],
+                         "num_relations": 50,
+                         "activation": ["swish", "swish", "swish", "linear"]},
     "cent_kwargs": {},
     "electrostatic_kwargs": {"name": "electrostatic_layer",
                              "use_physical_params": True,
@@ -116,9 +130,6 @@ for i in range(len(inputs)):
 
 
 # # Scaling energy and forces.
-# means_and_stds = [(0,1),
-#                   (np.mean(np.array(dataset.get("graph_labels"))), np.std(np.array(dataset.get("graph_labels")))),
-#                   (np.mean(np.array(dataset.get("force"))), np.std(np.array(dataset.get("force"))))]
 # scaler = EnergyForceExtensiveLabelScaler()
 # scaler_mapping = {"atomic_number": "node_number", "y": ["graph_labels", "force"]}
 # scaler.fit_transform_dataset(dataset, **scaler_mapping)
@@ -126,31 +137,39 @@ for i in range(len(inputs)):
 def zero_loss_function(y_true, y_pred):
     return 0
 
-kf = KFold(n_splits=2, random_state=42, shuffle=True)
+kf = KFold(n_splits=3, random_state=42, shuffle=True)
 charge_hists = []
 hists = []
+model_index = 0
 for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("graph_labels")), axis=-1)):
+    x_train = dataset[train_index].tensor(model_config["inputs"])
+    x_test = dataset[test_index].tensor(model_config["inputs"])
+    charge_train = dataset[train_index].tensor(charge_output)
+    charge_test = dataset[test_index].tensor(charge_output)
+    energy_force_train = dataset[train_index].tensor(outputs)
+    energy_force_test = dataset[test_index].tensor(outputs)
+
+    energy_mean_and_var = (tf.math.reduce_mean(energy_force_train[1]), tf.math.reduce_variance(energy_force_train[1]))
+    model_config["energy_mean_and_var"] = None # No scaling
+
     model_charge, model_energy = make_model(**model_config)
 
     model_charge.compile(
         loss="mean_squared_error",
         optimizer=ks.optimizers.Adam(),
-        metrics=None,
+        metrics=None
     )
 
-    x_train, y_train = dataset[train_index].tensor(model_config["inputs"]), dataset[train_index].tensor(charge_output)
-    x_test, y_test = dataset[test_index].tensor(model_config["inputs"]), dataset[test_index].tensor(charge_output)
-
     scheduler = LinearLearningRateScheduler(
-        learning_rate_start=1e-3, learning_rate_stop=1e-8, epo_min=0, epo=1000)
+        learning_rate_start=1e-3, learning_rate_stop=1e-8, epo_min=0, epo=300)
 
     start = time.process_time()
     charge_hist = model_charge.fit(
-        x_train, y_train,
+        x_train, charge_train,
         callbacks=[scheduler
         ],
         validation_data=(x_test, y_test),
-        epochs=1000,
+        epochs=300,
         batch_size=128,
         verbose=2
     )
@@ -183,28 +202,26 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
         loss_weights=[0, 1, 199]
     )
     
-    x_train, y_train = dataset[train_index].tensor(model_config["inputs"]), dataset[train_index].tensor(outputs)
-    x_test, y_test = dataset[test_index].tensor(model_config["inputs"]), dataset[test_index].tensor(outputs)
-    
     scheduler = LinearLearningRateScheduler(
-        learning_rate_start=1e-3, learning_rate_stop=1e-8, epo_min=0, epo=1000)
+        learning_rate_start=1e-3, learning_rate_stop=1e-8, epo_min=0, epo=300)
     
     start = time.process_time()
     hist = model_energy_force.fit(
-        x_train, y_train,
+        x_train, energy_force_train,
         callbacks=[scheduler
         ],
         validation_data=(x_test, y_test),
-        epochs=1000,
-        batch_size=128,
+        epochs=300,
+        batch_size=64,
         verbose=2
     )
     stop = time.process_time()
     print("Print Time for training: ", str(timedelta(seconds=stop - start)))
     hists.append(hist)
+    model_energy_force.save("model_energy_force"+str(model_index))
+    model_index += 1
 
 model_energy.summary()
-model_energy_force.save("model_energy_force")
 
 #scaler.inverse_transform_dataset(dataset, **scaler_mapping)
 true_charge = np.array(dataset[test_index].get("charge")).reshape(-1,1)

@@ -84,7 +84,7 @@ def plot_train_test_loss(histories: list, loss_name: str = None,
     if val_loss_array.shape[2] <= X_MIN:
         X_MIN = 0
     plt.xlim(left=X_MIN)
-    plt.ylim(top=np.max(np.percentile(val_loss_array[:, :, X_MIN:], 90, axis=0)), bottom=0)
+    plt.ylim(top=np.max(np.percentile(val_loss_array[:, :, X_MIN:], 75, axis=0)), bottom=0)
     plt.title(dataset_name + " training curve for " + model_name)
     plt.legend(loc='upper right', fontsize='small')
     if filepath is not None:
