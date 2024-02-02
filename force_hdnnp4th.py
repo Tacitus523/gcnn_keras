@@ -29,13 +29,14 @@ from kgcnn.utils import constants
 from kgcnn.model.force import EnergyForceModel
 from kgcnn.metrics.loss import RaggedMeanAbsoluteError
 
-data_directory="/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_combined/"
-#data_directory="/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_water/"
-#data_directory="/data/lpetersen/training_data/B3LYP_def2-TZVPP_water/"
-dataset_name="ThiolDisulfidExchange"
+#DATA_DIRECTORY = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_combined/"
+DATA_DIRECTORY = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_water/"
+#DATA_DIRECTORY = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_vacuum/"
+#DATA_DIRECTORY = "/data/lpetersen/training_data/B3LYP_def2-TZVPP_water/"
+DATASET_NAME = "ThiolDisulfidExchange"
 
-file_name=f"{dataset_name}.csv"
-print("Dataset:", data_directory+file_name)
+file_name = f"{DATASET_NAME}.csv"
+print("Dataset:", DATA_DIRECTORY+file_name)
 
 # Ability to restrict the model to only use a certain GPU, which is passed with python -g gpu_id
 ap = argparse.ArgumentParser(description="Handle gpu_ids")
@@ -44,9 +45,10 @@ args = ap.parse_args()
 if args.gpuid is not None:
     set_devices_gpu([args.gpuid])
 
-data_directory = os.path.join(os.path.dirname(__file__), os.path.normpath(data_directory))
-dataset = MemoryGraphDataset(data_directory=data_directory, dataset_name=dataset_name)
+data_directory = os.path.normpath(DATA_DIRECTORY)
+dataset = MemoryGraphDataset(data_directory=data_directory, dataset_name=DATASET_NAME)
 dataset.load()
+#dataset=dataset[5112:]
 #dataset=dataset[:10]
 print(dataset[0].keys())
 
@@ -90,19 +92,19 @@ model_config = {
                   , "elements": elemental_mapping, "multiplicity": 2.0},
     "normalize_kwargs": {},
     # # Original MLPs
-    # "mlp_charge_kwargs": {"units": [15, 1],
-    #                       "num_relations": 96,
-    #                       "activation": ["tanh", "linear"]},
-    # "mlp_local_kwargs": {"units": [35, 35, 1],
-    #                      "num_relations": 96,
-    #                      "activation": ["tanh", "tanh", "linear"]},
-    # Hyperparamter search MLPs
-    "mlp_charge_kwargs": {"units": [100, 100, 100, 1],
-                          "num_relations": 50,
-                          "activation": ["relu", "relu", "relu", "linear"]},
-    "mlp_local_kwargs": {"units": [100, 100, 100, 1],
-                         "num_relations": 50,
-                         "activation": ["swish", "swish", "swish", "linear"]},
+    "mlp_charge_kwargs": {"units": [15, 1],
+                          "num_relations": 96,
+                          "activation": ["tanh", "linear"]},
+    "mlp_local_kwargs": {"units": [35, 35, 1],
+                         "num_relations": 96,
+                         "activation": ["tanh", "tanh", "linear"]},
+    # # Hyperparamter search MLPs
+    # "mlp_charge_kwargs": {"units": [100, 100, 100, 1],
+    #                       "num_relations": 50,
+    #                       "activation": ["relu", "relu", "relu", "linear"]},
+    # "mlp_local_kwargs": {"units": [100, 100, 100, 1],
+    #                      "num_relations": 50,
+    #                      "activation": ["swish", "swish", "swish", "linear"]},
     "cent_kwargs": {},
     "electrostatic_kwargs": {"name": "electrostatic_layer",
                              "use_physical_params": True,
@@ -134,6 +136,7 @@ for i in range(len(inputs)):
 # scaler_mapping = {"atomic_number": "node_number", "y": ["graph_labels", "force"]}
 # scaler.fit_transform_dataset(dataset, **scaler_mapping)
 
+@ks.utils.register_keras_serializable(package="kgcnn", name="zero_loss_function")
 def zero_loss_function(y_true, y_pred):
     return 0
 
@@ -161,15 +164,15 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
     )
 
     scheduler = LinearLearningRateScheduler(
-        learning_rate_start=1e-3, learning_rate_stop=1e-8, epo_min=0, epo=300)
+        learning_rate_start=1e-3, learning_rate_stop=1e-8, epo_min=0, epo=1000)
 
     start = time.process_time()
     charge_hist = model_charge.fit(
         x_train, charge_train,
         callbacks=[scheduler
         ],
-        validation_data=(x_test, y_test),
-        epochs=300,
+        validation_data=(x_test, charge_test),
+        epochs=1000,
         batch_size=128,
         verbose=2
     )
@@ -203,15 +206,15 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
     )
     
     scheduler = LinearLearningRateScheduler(
-        learning_rate_start=1e-3, learning_rate_stop=1e-8, epo_min=0, epo=300)
+        learning_rate_start=1e-3, learning_rate_stop=1e-8, epo_min=0, epo=1000)
     
     start = time.process_time()
     hist = model_energy_force.fit(
         x_train, energy_force_train,
         callbacks=[scheduler
         ],
-        validation_data=(x_test, y_test),
-        epochs=300,
+        validation_data=(x_test, energy_force_test),
+        epochs=1000,
         batch_size=64,
         verbose=2
     )
@@ -237,26 +240,26 @@ predicted_force = np.array(predicted_force).reshape(-1,1)
 
 plot_predict_true(predicted_charge, true_charge,
     filepath="", data_unit="e",
-    model_name="HDNNP", dataset_name=dataset_name, target_names="Charge",
+    model_name="HDNNP", dataset_name=DATASET_NAME, target_names="Charge",
     error="RMSE", file_name=f"predict_charge.png", show_fig=False)
 
 plot_predict_true(predicted_energy, true_energy,
     filepath="", data_unit=r"$\frac{kcal}{mol}$",
-    model_name="HDNNP", dataset_name=dataset_name, target_names="Energy",
+    model_name="HDNNP", dataset_name=DATASET_NAME, target_names="Energy",
     error="RMSE", file_name=f"predict_energy.png", show_fig=False)
 
 plot_predict_true(predicted_force, true_force,
     filepath="", data_unit="Eh/B",
-    model_name="HDNNP", dataset_name=dataset_name, target_names="Force",
+    model_name="HDNNP", dataset_name=DATASET_NAME, target_names="Force",
     error="RMSE", file_name=f"predict_force.png", show_fig=False)
 
 plot_train_test_loss(charge_hists,
     filepath="", data_unit="e",
-    model_name="HDNNP", dataset_name=dataset_name, file_name="charge_loss.png", show_fig=False)
+    model_name="HDNNP", dataset_name=DATASET_NAME, file_name="charge_loss.png", show_fig=False)
 
 plot_train_test_loss(hists,
     filepath="", data_unit="Eh",
-    model_name="HDNNP", dataset_name=dataset_name, file_name="loss.png", show_fig=False)
+    model_name="HDNNP", dataset_name=DATASET_NAME, file_name="loss.png", show_fig=False)
 
 rmse_charge = mean_squared_error(true_charge, predicted_charge, squared=False)
 mae_charge  = mean_absolute_error(true_charge, predicted_charge)

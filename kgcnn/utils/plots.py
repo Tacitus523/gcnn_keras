@@ -198,7 +198,7 @@ def plot_test_set_prediction(data: pd.DataFrame, observation: str, prediction: s
     plt.grid(which="minor", linestyle="-", linewidth="0.5", color="blue", alpha=0.25)
     #plt.minorticks_on()
     plt.tick_params(axis='both', which="major", labelsize=LABELSIZE)
-    plt.title(f"Prediction {title}", fontsize=FONTSIZE)
+    #plt.title(f"Prediction {title}", fontsize=FONTSIZE)
     text_x = 0.75*(value_max-value_min) + value_min
     text_y = 0.1*(value_max-value_min) + value_min
     if rmse is not None and r2 is not None:

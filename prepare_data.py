@@ -1,3 +1,6 @@
+#!/usr/bin/python3
+import argparse
+import json
 import numpy as np
 import pandas as pd
 import os
@@ -7,7 +10,7 @@ import warnings
 
 OVERWRITE = True # Set to True to enforce the writing in TARGET_FOLDER possibly overwriting data
 
-DATA_FOLDER = "/home/lpetersen/dftb-nn/data/B3LYP_aug-cc-pVTZ_water" # Folder that contains data the files
+DATA_FOLDER = "/home/lpetersen/dftb-nn/data/B3LYP_aug-cc-pVTZ_combined" # Folder that contains data the files
 GEOMETRY_FILE = "geoms.xyz" # path to geometry-file, gromacs-format, in Angstrom
 ENERGY_FILE = "energy_diff.txt" # path to energy-file, no header, separated by new lines, in Hartree
 CHARGE_FILE = "charges_hirsh.txt" # path to charge-file, one line per molecule geometry,  "" if not available, in elementary charges
@@ -21,9 +24,33 @@ PREFIX = "ThiolDisulfidExchange" # prefix to generated files, compulsary for kgc
 TARGET_FOLDER = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_water" # target folder to save the data
 
 BABEL_DATADIR = "/usr/local/run/openbabel-2.4.1" # local installation of openbabel
-
-
 os.environ['BABEL_DATADIR'] = BABEL_DATADIR
+
+ap = argparse.ArgumentParser(description="Give config file")
+ap.add_argument("-c", "--conf", default=None, type=str, dest="config_path", action="store", required=False, help="Path to config file, default: None", metavar="config")
+ap.add_argument("-g", "--gpuid", type=int) # Just here as a dummy, nothing actually uses a GPU
+args = ap.parse_args()
+config_path = args.config_path
+if config_path is not None:
+    try:
+        with open(config_path, 'r') as config_file:
+            config_data = json.load(config_file)
+    except FileNotFoundError:
+        print(f"Config file {config_path} not found.")
+        exit(1)
+
+    DATA_FOLDER = config_data.get("DATA_FOLDER", DATA_FOLDER)
+    GEOMETRY_FILE = config_data.get("GEOMETRY_FILE", GEOMETRY_FILE)
+    ENERGY_FILE = config_data.get("ENERGY_FILE", ENERGY_FILE)
+    CHARGE_FILE = config_data.get("CHARGE_FILE", CHARGE_FILE)
+    ESP_FILE = config_data.get("ESP_FILE", ESP_FILE)
+    ESP_GRAD_FILE = config_data.get("ESP_GRAD_FILE", ESP_GRAD_FILE)
+    AT_COUNT = int(config_data.get("AT_COUNT", AT_COUNT))
+    CUTOFF = float(config_data.get("CUTOFF", CUTOFF))
+    FORCE_FILE = config_data.get("FORCE_FILE", FORCE_FILE)
+    TOTAL_CHARGE = int(config_data.get("TOTAL_CHARGE", TOTAL_CHARGE))
+    PREFIX = config_data.get("PREFIX", PREFIX)
+    TARGET_FOLDER = config_data.get("TARGET_FOLDER", TARGET_FOLDER)
 
 # Supress tensorflow info-messages and warnings
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
@@ -32,15 +59,25 @@ from kgcnn.data.base import MemoryGraphDataset
 from kgcnn.data.qm import QMDataset
 
 def copy_data(geometry_path: str, charge_path: str, esp_path: str, esp_grad_path: str, force_path: str, prefix: str, target_path: str) -> None:
-    shutil.copyfile(geometry_path, join(target_path, f"{prefix}.xyz"))
-    if os.path.isfile(charge_path):
-        shutil.copyfile(charge_path, join(target_path, f"charges.txt"))
-    if os.path.isfile(esp_path):
-        shutil.copyfile(esp_path, join(target_path, f"esps_by_mm.txt"))
-    if os.path.isfile(esp_grad_path):
-        shutil.copyfile(esp_grad_path, join(target_path, f"esp_gradients.txt"))
-    if os.path.isfile(force_path):
-        shutil.copyfile(force_path, join(target_path, f"forces.xyz"))
+    target_geometry_path = join(target_path, f"{prefix}.xyz")
+    target_charge_path = join(target_path, f"charges.txt")
+    target_esp_path = join(target_path, f"esps_by_mm.txt")
+    target_esp_grad_path = join(target_path, f"esp_gradients.txt")
+    target_force_path = join(target_path, f"forces.xyz")
+
+    if os.path.isfile(geometry_path):
+        if not os.path.isfile(target_geometry_path):
+            shutil.copyfile(geometry_path, target_geometry_path)
+    else:
+        raise FileNotFoundError(f"Geometry file not found at {geometry_path}")
+    if os.path.isfile(charge_path) and not os.path.isfile(target_charge_path):
+        shutil.copyfile(charge_path, target_charge_path)
+    if os.path.isfile(esp_path) and not os.path.isfile(target_esp_path):
+        shutil.copyfile(esp_path, target_esp_path)
+    if os.path.isfile(esp_grad_path) and not os.path.isfile(target_esp_grad_path):
+        shutil.copyfile(esp_grad_path, target_esp_grad_path)
+    if os.path.isfile(force_path) and not os.path.isfile(target_force_path):
+        shutil.copyfile(force_path, target_force_path)
 
 
 def make_and_write_csv(energy_path: str, total_charge: int, prefix: str, target_path: str) -> None:
@@ -125,7 +162,7 @@ if __name__ == "__main__":
         os.makedirs(target_path)
     elif OVERWRITE is False:
         print(f"{target_path} already exists and OVERWRITE is False. Aborting")
-        exit()
+        exit(1)
     else:
         print(f"Warning: Existing data in {target_path} was overwritten")
 
