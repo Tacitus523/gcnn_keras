@@ -91,7 +91,7 @@ models = [tf.keras.models.load_model(model_path,
             custom_objects={"zero_loss_function": zero_loss_function})
             for model_path in model_paths]
 
-kf = KFold(n_splits=len(models), random_state=42, shuffle=True)
+kf = KFold(n_splits=len(models), shuffle=True)
 hists = []
 model_index = 0
 for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("graph_labels")), axis=-1)):
