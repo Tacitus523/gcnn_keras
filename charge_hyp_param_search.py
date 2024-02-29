@@ -33,8 +33,7 @@ from kgcnn.metrics.loss import RaggedMeanAbsoluteError
 
 from kgcnn.utils.data_splitter import idx_generator
 
-data_directory="data/B3LYP_aug-cc-pVTZ_water/"
-#data_directory="data/B3LYP_def2-TZVPP_water/"
+data_directory="/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_water/"
 dataset_name="ThiolDisulfidExchange"
 
 file_name=f"{dataset_name}.csv"
@@ -76,10 +75,14 @@ class MyHyperModel(kt.HyperModel):
         zeta_array    = [1, 2, 4, 8, 16]
         eta_ang_array = eta_array
 
-        neurons = hp.Int("neurons", 10, 100, 15)
-        n_layers = hp.Int("layers", 1, 3, 1)
-        activation = hp.Choice("activation", ["relu", "tanh", "elu", "selu", "swish"])
-        layers = [neurons]*n_layers + [1]
+        n_layers = hp.Int("n_layers", 1, 3, 1)
+        layers = []
+        for i in range(n_layers):
+            neurons = hp.Int(f"neurons_{i}", 25, 126, 25)
+            layers.append(neurons)
+        layers.append(1)
+
+        activation = hp.Choice("activation", ["relu", "tanh", "elu", "selu"])
         activations = [activation]*n_layers + ["linear"]
 
         elemental_mapping = [1, 6, 16]
@@ -91,12 +94,12 @@ class MyHyperModel(kt.HyperModel):
                           "elements": elemental_mapping, "multiplicity": 2.0},
             "normalize_kwargs": {},
             "mlp_charge_kwargs": {"units": layers,
-                                "num_relations": 50,
+                                "num_relations": 30,
                                 "activation": activations},
             "cent_kwargs": {},
             "electrostatic_kwargs": {"name": "electrostatic_layer",
                                      "use_physical_params": True,
-                                     "param_trainable": False},
+                                     "param_trainable": True},
             "verbose": 10,
             "output_embedding": "charge", "output_to_tensor": True,
             "use_output_mlp": False
@@ -104,7 +107,7 @@ class MyHyperModel(kt.HyperModel):
 
         model_charge, model_energy = make_model(**model_config)
 
-        lr_schedule = ks.optimizers.schedules.CosineDecayRestarts(initial_learning_rate=1e-4, first_decay_steps=1e3, t_mul=1.5, m_mul=0.3, alpha=1e-5)
+        lr_schedule = ks.optimizers.schedules.CosineDecayRestarts(initial_learning_rate=1e-4, first_decay_steps=1e4, t_mul=1.5, m_mul=0.3, alpha=1e-4)
         model_charge.compile(
             loss="mean_squared_error",
             optimizer=ks.optimizers.Adam(lr_schedule),
@@ -144,9 +147,9 @@ class LearningRateLoggingCallback(tf.keras.callbacks.Callback):
             logs["lr"] = current_lr
 
 # Hyperparameter Search
-max_epochs = 400
+max_epochs = 600
 hp_factor = 21
-hyperband_iterations = 1
+hyperband_iterations = 2
 batch_size = 64
 patience = 100
 earlystop = ks.callbacks.EarlyStopping(monitor="val_loss", mode="min", patience=patience, verbose=0)
@@ -155,29 +158,26 @@ callbacks = [earlystop, lrlog]
 my_hyper_model = MyHyperModel()
 tuner = kt.Hyperband(my_hyper_model, objective="val_loss",
                      max_epochs=max_epochs, factor=hp_factor, hyperband_iterations=hyperband_iterations, directory="trials", 
-                     max_consecutive_failed_trials=1)
+                     max_consecutive_failed_trials=2)
 tuner.search_space_summary()
 tuner.search(x_train, y_train, batch_size=batch_size, epochs=max_epochs, callbacks=callbacks, verbose=2, validation_data=[x_val, y_val])
 tuner.results_summary()
 
-n_best_hps = tuner.get_best_hyperparameters(num_trials=3)
-
-print("")
-print("Best Hyperparameters")
-for n, nth_best_hps in enumerate(n_best_hps):
-    print(f"Model number {n+1}:")
-    for key, value in nth_best_hps.values.items():
-        print(f"{key}: {value}")
-    print("")
+n_best_hps = tuner.get_best_hyperparameters(num_trials=10)
 
 with open(os.path.join("best_hp.json"), "w") as f:
     json.dump(n_best_hps[0].values, f, indent=2)
 
-# best_model_charge = tuner.get_best_models(num_models=1)[0] # Pretrained during trial
-best_model_charge = tuner.hypermodel.build(n_best_hps[0]) # New initialized model
+chosen_model_idx = 0
+# best_model_charge = tuner.get_best_models(num_models=10)[chosen_model_idx] # Pretrained during trial
+chosen_model_parameters = n_best_hps[chosen_model_idx]
+best_model_charge = tuner.hypermodel.build(chosen_model_parameters) # New initialized model
+print("")
+print(f"Chosen model number: {chosen_model_idx}")
+for key, value in chosen_model_parameters.values.items():
+    print(f"{key}: {value}")
 
 charge_hists = []
-best_model_charge.save("model_charge")
 
 start = time.process_time()
 charge_hist = best_model_charge.fit(
@@ -188,16 +188,17 @@ charge_hist = best_model_charge.fit(
     batch_size=64,
     verbose=2
 )
+best_model_charge.save("model_charge")
 stop = time.process_time()
 print("Print Time for training: ", str(timedelta(seconds=stop - start)))
 charge_hists.append(charge_hist)
 
 # scaler.inverse_transform_dataset(dataset, **scaler_mapping)
-true_charge = np.array(y_test).reshape(-1,1)
+true_charge = y_test.to_tensor().numpy().reshape(-1,1)
 
 predicted_charge = best_model_charge.predict(x_test, verbose=0)
+predicted_charge = predicted_charge.reshape(-1,1)
 del best_model_charge
-predicted_charge = np.array(predicted_charge).reshape(-1,1)
 
 plot_predict_true(predicted_charge, true_charge,
     filepath="", data_unit="e",

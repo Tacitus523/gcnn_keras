@@ -29,11 +29,10 @@ from kgcnn.utils import constants
 from kgcnn.model.force import EnergyForceModel
 from kgcnn.metrics.loss import RaggedMeanAbsoluteError
 
-#DATA_DIRECTORY = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_combined/"
 DATA_DIRECTORY = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_water/"
-#DATA_DIRECTORY = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_vacuum/"
-#DATA_DIRECTORY = "/data/lpetersen/training_data/B3LYP_def2-TZVPP_water/"
 DATASET_NAME = "ThiolDisulfidExchange"
+
+EPOCHS = 1000
 
 file_name = f"{DATASET_NAME}.csv"
 print("Dataset:", DATA_DIRECTORY+file_name)
@@ -91,20 +90,20 @@ model_config = {
     "g4_kwargs": {"eta": eta_ang_array, "zeta": zeta_array, "lamda": lambd_array, "rc": cutoff_ang
                   , "elements": elemental_mapping, "multiplicity": 2.0},
     "normalize_kwargs": {},
-    # # Original MLPs
+    # Original MLPs
     "mlp_charge_kwargs": {"units": [15, 1],
-                          "num_relations": 96,
+                          "num_relations": 20,
                           "activation": ["tanh", "linear"]},
     "mlp_local_kwargs": {"units": [35, 35, 1],
-                         "num_relations": 96,
+                         "num_relations": 20,
                          "activation": ["tanh", "tanh", "linear"]},
     # # Hyperparamter search MLPs
     # "mlp_charge_kwargs": {"units": [100, 100, 100, 1],
-    #                       "num_relations": 50,
+    #                       "num_relations": 20,
     #                       "activation": ["relu", "relu", "relu", "linear"]},
     # "mlp_local_kwargs": {"units": [100, 100, 100, 1],
-    #                      "num_relations": 50,
-    #                      "activation": ["swish", "swish", "swish", "linear"]},
+    #                      "num_relations": 20,
+    #                      "activation": ["relu", "relu", "relu", "linear"]},
     "cent_kwargs": {},
     "electrostatic_kwargs": {"name": "electrostatic_layer",
                              "use_physical_params": True,
@@ -164,7 +163,7 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
     )
 
     scheduler = LinearLearningRateScheduler(
-        learning_rate_start=1e-3, learning_rate_stop=1e-8, epo_min=0, epo=1000)
+        learning_rate_start=1e-3, learning_rate_stop=1e-8, epo_min=0, epo=EPOCHS)
 
     start = time.process_time()
     charge_hist = model_charge.fit(
@@ -172,7 +171,7 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
         callbacks=[scheduler
         ],
         validation_data=(x_test, charge_test),
-        epochs=1000,
+        epochs=EPOCHS,
         batch_size=128,
         verbose=2
     )
@@ -199,14 +198,14 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
     )
 
     model_energy_force.compile(
-        loss=[zero_loss_function, "mean_squared_error", "mean_squared_error"],
+        loss=["mean_squared_error", "mean_squared_error", "mean_squared_error"],
         optimizer=ks.optimizers.Adam(),
         metrics=None,
         loss_weights=[0, 1, 199]
     )
     
     scheduler = LinearLearningRateScheduler(
-        learning_rate_start=1e-3, learning_rate_stop=1e-8, epo_min=0, epo=1000)
+        learning_rate_start=1e-3, learning_rate_stop=1e-8, epo_min=0, epo=EPOCHS)
     
     start = time.process_time()
     hist = model_energy_force.fit(
@@ -214,7 +213,7 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
         callbacks=[scheduler
         ],
         validation_data=(x_test, energy_force_test),
-        epochs=1000,
+        epochs=EPOCHS,
         batch_size=64,
         verbose=2
     )

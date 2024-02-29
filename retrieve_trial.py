@@ -33,12 +33,13 @@ from kgcnn.metrics.loss import RaggedMeanAbsoluteError
 
 from kgcnn.utils.data_splitter import idx_generator
 
-data_directory="/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_water/"
+DATA_DIRECTORY = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_water/"
 
-dataset_name="ThiolDisulfidExchange"
+DATASET_NAME = "ThiolDisulfidExchange"
 
-file_name=f"{dataset_name}.csv"
-print("Dataset:", data_directory+file_name)
+TRIAL_DIRECTORY = "/data/lpetersen/Behler_training/thiol_disulfide/07_esp_derivative/B3LYP_aug-cc-pVTZ_water/force_hp_search_03/trials"
+# Retrieve a specific trial ID from your tuner search, purpose changed, not used anymore
+TRIAL_ID = "0427"  # Replace with the actual trial ID
 
 # Ability to restrict the model to only use a certain GPU, which is passed with python -g gpu_id
 ap = argparse.ArgumentParser(description="Handle gpu_ids")
@@ -47,11 +48,9 @@ args = ap.parse_args()
 if args.gpuid is not None:
     set_devices_gpu([args.gpuid])
 
-data_directory = os.path.join(os.path.dirname(__file__), os.path.normpath(data_directory))
-dataset = MemoryGraphDataset(data_directory=data_directory, dataset_name=dataset_name)
+data_directory = os.path.join(os.path.dirname(__file__), os.path.normpath(DATA_DIRECTORY))
+dataset = MemoryGraphDataset(data_directory=data_directory, dataset_name=DATASET_NAME)
 dataset.load()
-#dataset = dataset[:10]
-print(dataset[0].keys())
 
 input_config = [{"shape": (None,), "name": "node_number", "dtype": "int64", "ragged": True},
                 {"shape": (None, 3), "name": "node_coordinates", "dtype": "float32", "ragged": True},
@@ -69,23 +68,14 @@ outputs = [
     {"name": "force", "shape": (None, 3), "ragged": True}
 ]
 
+x_test, y_test = dataset[[0]].tensor(input_config), dataset[[0]].tensor(outputs)
+
 def zero_loss_function(y_true, y_pred):
     return 0
 
 class MyHyperModel(kt.HyperModel):
     def build(self, hp):
         ks.backend.clear_session() # RAM is apparently not released between trials. This should clear some of it, but probably not all. https://github.com/keras-team/keras-tuner/issues/395
-
-        # # Radial parameters
-        # cutoff_rad = 20
-        # Rs_array   = [0.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
-        # eta_array  = [0.0, 0.03, 0.08, 0.16, 0.3, 0.5]
-
-        # # Angular parameters
-        # cutoff_ang    = 12
-        # lambd_array   = [-1, 1]
-        # zeta_array    = [1, 2, 4, 8, 16]
-        # eta_ang_array = eta_array
 
         # Radial parameters
         cutoff_rad = hp.Float("cutoff_rad", 8, 30, 4)
@@ -131,7 +121,7 @@ class MyHyperModel(kt.HyperModel):
             charge_layers.append(charge_neurons)
         charge_layers.append(1)
 
-        charge_activation = hp.Choice("charge_activation", ["relu", "tanh", "elu", "selu"])
+        charge_activation = hp.Choice("charge_activation", ["relu", "tanh", "elu", "selu", "swish"])
         charge_activations = [charge_activation]*charge_n_layers + ["linear"]
 
         energy_n_layers = hp.Int("energy_n_layers", 1, 3, 1)
@@ -143,7 +133,7 @@ class MyHyperModel(kt.HyperModel):
             energy_layers.append(energy_neurons)
         energy_layers.append(1)
 
-        energy_activation = hp.Choice("energy_activation", ["relu", "tanh", "elu", "selu"])
+        energy_activation = hp.Choice("energy_activation", ["relu", "tanh", "elu", "selu", "swish"])
         energy_activations = [energy_activation]*energy_n_layers + ["linear"]
 
         elemental_mapping = [1, 6, 16]
@@ -244,19 +234,6 @@ class MyHyperModel(kt.HyperModel):
         hist = model.fit(*args, **kwargs)
         return hist 
 
-# # Scaling energy and forces.
-# scaler = EnergyForceExtensiveLabelScaler()
-# scaler_mapping = {"atomic_number": "node_number", "y": ["graph_labels", "force"]}
-# scaler.fit_transform_dataset(dataset, **scaler_mapping)
-
-train_index, val_index, test_index = idx_generator(len(dataset), 0.3, 0.3)
-y_train_charge = dataset[train_index].tensor(charge_output)
-y_val_charge = dataset[val_index].tensor(charge_output)
-y_test_charge = dataset[test_index].tensor(charge_output)
-x_train, y_train = dataset[train_index].tensor(input_config), dataset[train_index].tensor(outputs)
-x_val, y_val = dataset[val_index].tensor(input_config), dataset[val_index].tensor(outputs)
-x_test, y_test = dataset[test_index].tensor(input_config), dataset[test_index].tensor(outputs)
-
 class LearningRateLoggingCallback(tf.keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs=None):
         optimizer = self.model.optimizer
@@ -268,7 +245,7 @@ class LearningRateLoggingCallback(tf.keras.callbacks.Callback):
             logs["lr"] = current_lr
 
 # Hyperparameter Search
-max_epochs = 400
+max_epochs = 600
 hp_factor = 3
 hyperband_iterations = 2
 batch_size = 32
@@ -278,79 +255,90 @@ lrlog = LearningRateLoggingCallback()
 callbacks = [earlystop, lrlog]
 my_hyper_model = MyHyperModel()
 tuner = kt.Hyperband(my_hyper_model, objective=kt.Objective("val_loss", direction="min"),
-                     max_epochs=max_epochs, factor=hp_factor, hyperband_iterations=hyperband_iterations, directory="trials", 
+                     max_epochs=max_epochs, factor=hp_factor, hyperband_iterations=hyperband_iterations, directory=TRIAL_DIRECTORY, 
                      max_consecutive_failed_trials=1)
-tuner.search_space_summary()
-tuner.search(x_train, y_train, batch_size=batch_size, epochs=max_epochs, callbacks=callbacks, verbose=2, validation_data=[x_val, y_val])
-tuner.results_summary(num_trials=10)
 
-n_best_hps = tuner.get_best_hyperparameters(num_trials=10)
 
-with open(os.path.join("best_hp.json"), "w") as f:
-    json.dump(n_best_hps[0].values, f, indent=2)
+tuner.results_summary(5)
+# # Build the model using the hyperparameters from the specified trial
+# target_trial = tuner.oracle.get_trial(TRIAL_ID)
+# target_trial.display_hyperparameters()
+# target_hyperparameters = target_trial.hyperparameters
+# target_model = tuner.hypermodel.build(target_hyperparameters)
 
-model_index = 0
-# best_model_force = tuner.get_best_models(num_models=1)[model_index] # Pretrained during trial
-best_model_force = tuner.hypermodel.build(n_best_hps[model_index]) # New initialized model
-best_model_charge = tuner.hypermodel.charge_model
+# # Save best models anyway
+# best_models = tuner.get_best_models(num_models=3)
+# for idx, model in enumerate(best_models):
+#     model.predict(x_test, verbose=0)
+#     model.save("model_energy_force"+str(idx))
+
+n_best_hps = tuner.get_best_hyperparameters(num_trials=5)
 
 charge_hists = []
 hists = []
 epochs = 500
 
-start = time.process_time()
-hist = tuner.hypermodel.fit(
-    n_best_hps[model_index],
-    best_model_force,
-    x_train, y_train,
-    callbacks=callbacks,
-    validation_data=(x_test, y_test),
-    epochs=epochs,
-    batch_size=32,
-    verbose=2
-)
-stop = time.process_time()
-print("Print Time for training: ", str(timedelta(seconds=stop - start)))
-charge_hists.append(tuner.hypermodel.charge_hist)
-hists.append(hist)
+kf = KFold(n_splits=3, random_state=42, shuffle=True)
+model_index = 0
+for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("graph_labels")), axis=-1)):
+    best_model_force = tuner.hypermodel.build(n_best_hps[model_index]) # New initialized model
+    best_model_charge = tuner.hypermodel.model_charge
 
-# model_energy.summary()
-best_model_force.save("chosen_force_model")
+    x_train = dataset[train_index].tensor(input_config)
+    x_test = dataset[test_index].tensor(input_config)
+    charge_train = dataset[train_index].tensor(charge_output)
+    charge_test = dataset[test_index].tensor(charge_output)
+    energy_force_train = dataset[train_index].tensor(outputs)
+    energy_force_test = dataset[test_index].tensor(outputs)
 
-#scaler.inverse_transform_dataset(dataset, **scaler_mapping)
+    start = time.process_time()
+    hist = tuner.hypermodel.fit(
+        n_best_hps[model_index],
+        best_model_force,
+        x_train, energy_force_train,
+        callbacks=callbacks,
+        validation_data=(x_test, energy_force_test),
+        epochs=epochs,
+        batch_size=32,
+        verbose=2
+    )
+    stop = time.process_time()
+    print("Print Time for training: ", str(timedelta(seconds=stop - start)))
+    charge_hists.append(tuner.hypermodel.charge_hist)
+    hists.append(hist)
+    best_model_force.save("model_energy_force"+str(model_index))
+    model_index += 1
+
 true_charge = np.array(dataset[test_index].get("charge")).reshape(-1,1)
 true_energy = np.array(dataset[test_index].get("graph_labels")).reshape(-1,1)*constants.hartree_to_kcalmol
 true_force = np.array(dataset[test_index].get("force")).reshape(-1,1)
 predicted_charge, predicted_energy, predicted_force = best_model_force.predict(x_test, verbose=0)
-
-# predicted_energy, predicted_force = scaler.inverse_transform(
-#    y=(predicted_energy.flatten(), predicted_force), X=dataset[test_index].get("node_number"))
 predicted_charge = np.array(predicted_charge).reshape(-1,1)
 predicted_energy = np.array(predicted_energy).reshape(-1,1)*constants.hartree_to_kcalmol
 predicted_force = np.array(predicted_force).reshape(-1,1)
 
 plot_predict_true(predicted_charge, true_charge,
     filepath="", data_unit="e",
-    model_name="HDNNP", dataset_name=dataset_name, target_names="Charge",
+    model_name="HDNNP", dataset_name=DATASET_NAME, target_names="Charge",
     error="RMSE", file_name=f"predict_charge.png", show_fig=False)
 
 plot_predict_true(predicted_energy, true_energy,
     filepath="", data_unit=r"$\frac{kcal}{mol}$",
-    model_name="HDNNP", dataset_name=dataset_name, target_names="Energy",
+    model_name="HDNNP", dataset_name=DATASET_NAME, target_names="Energy",
     error="RMSE", file_name=f"predict_energy.png", show_fig=False)
 
 plot_predict_true(predicted_force, true_force,
     filepath="", data_unit="Eh/B",
-    model_name="HDNNP", dataset_name=dataset_name, target_names="Force",
+    model_name="HDNNP", dataset_name=DATASET_NAME, target_names="Force",
     error="RMSE", file_name=f"predict_force.png", show_fig=False)
 
 plot_train_test_loss(charge_hists,
     filepath="", data_unit="e",
-    model_name="HDNNP", dataset_name=dataset_name, file_name="charge_loss.png", show_fig=False)
+    model_name="HDNNP", dataset_name=DATASET_NAME, file_name="charge_loss.png", show_fig=False)
 
 plot_train_test_loss(hists,
     filepath="", data_unit="Eh",
-    model_name="HDNNP", dataset_name=dataset_name, file_name="loss.png", show_fig=False)
+    model_name="HDNNP", dataset_name=DATASET_NAME, file_name="loss.png", show_fig=False)
 
 rmse_charge = mean_squared_error(true_charge, predicted_charge, squared=False)
 mae_charge  = mean_absolute_error(true_charge, predicted_charge)
