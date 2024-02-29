@@ -279,9 +279,10 @@ hists = []
 epochs = 500
 
 kf = KFold(n_splits=3, random_state=42, shuffle=True)
+model_indexes = [0,3,4]
 model_index = 0
 for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("graph_labels")), axis=-1)):
-    best_model_force = tuner.hypermodel.build(n_best_hps[model_index]) # New initialized model
+    best_model_force = tuner.hypermodel.build(n_best_hps[model_indexes[model_index]]) # New initialized model
     best_model_charge = tuner.hypermodel.model_charge
 
     x_train = dataset[train_index].tensor(input_config)
@@ -293,7 +294,7 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
 
     start = time.process_time()
     hist = tuner.hypermodel.fit(
-        n_best_hps[model_index],
+        n_best_hps[model_indexes[model_index]],
         best_model_force,
         x_train, energy_force_train,
         callbacks=callbacks,
