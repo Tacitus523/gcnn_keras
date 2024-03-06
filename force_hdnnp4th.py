@@ -29,22 +29,94 @@ from kgcnn.utils import constants
 from kgcnn.model.force import EnergyForceModel
 from kgcnn.metrics.loss import RaggedMeanAbsoluteError
 
-#DATA_DIRECTORY = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_combined/"
-DATA_DIRECTORY = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_water/"
-#DATA_DIRECTORY = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_vacuum/"
-#DATA_DIRECTORY = "/data/lpetersen/training_data/B3LYP_def2-TZVPP_water/"
-DATASET_NAME = "ThiolDisulfidExchange"
+# DEFAULT VALUES
+# DATA READ AND SAVE
+DATA_DIRECTORY = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_water/" # Folder containing DATASET_NAME.kgcnn.pickle
+DATASET_NAME = "ThiolDisulfidExchange" # Used in naming plots and looking for data
+MODEL_PREFIX = "model_energy_force" # Will be used to save the models
 
-file_name = f"{DATASET_NAME}.csv"
-print("Dataset:", DATA_DIRECTORY+file_name)
+# SYMMETRY FUNCTION HYPER PARAMETERS
+ELEMENTAL_MAPPING = [1, 6, 16] # Parameters can be given individually per element. This list maps the parameters to its element
+
+# Radial parameters
+CUTOFF_RAD = 20 # Radial cutoff distance in Bohr
+RS_ARRAY   = [0.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0] # Shift parameter Rs in Bohr
+ETA_ARRAY  = [0.0, 0.03, 0.08, 0.16, 0.3, 0.5] # Width parameter eta in 1/Bohr^2
+
+# Angular parameters
+CUTOFF_ANG    = 12 # Angular cutoff distance in Bohr
+LAMBD_ARRAY   = [-1, 1] # Lambda parameter
+ZETA_ARRAY    = [1, 2, 4, 8, 16] # Zeta parameter
+ETA_ANG_ARRAY = ETA_ARRAY # Width parameter eta in 1/Bohr^2
+
+# CHARGE MODEL HYPER PARAMETERS
+CHARGE_EPOCHS                = 500 # Epochs during training
+CHARGE_INITIAL_LEARNING_RATE = 1e-3 # Initial learning rate during training
+CHARGE_FINAL_LEARNING_RATE   = 1e-8 # Initial learning rate during training
+CHARGE_HIDDEN_LAYERS         = [15] # List of number of nodes per hidden layer 
+CHARGE_HIDDEN_ACTIVATION     = ["tanh"] # List of activation functions of hidden layers
+CHARGE_BATCH_SIZE            = 64 # Batch size during training
+CHARGE_EARLY_STOPPING        = 100 # Patience of Early Stopping. If 0, no Early Stopping
+
+# ENERGY MODEL HYPER PARAMETERS
+ENERGY_EPOCHS                = 500 # Epochs during training
+ENERGY_INITIAL_LEARNING_RATE = 1e-3 # Initial learning rate during training
+ENERGY_FINAL_LEARNING_RATE   = 1e-8 # Initial learning rate during training
+ENERGY_HIDDEN_LAYERS         = [35, 35] # List of number of nodes per hidden layer 
+ENERGY_HIDDEN_ACTIVATION     = ["tanh", "tanh"] # List of activation functions of hidden layers
+ENERGY_BATCH_SIZE            = 64 # Batch size during training
+ENERGY_EARLY_STOPPING        = 100 # Patience of Early Stopping. If 0, no Early Stopping
 
 # Ability to restrict the model to only use a certain GPU, which is passed with python -g gpu_id
-ap = argparse.ArgumentParser(description="Handle gpu_ids")
+ap = argparse.ArgumentParser(description="Handle gpu_ids and training parameters")
 ap.add_argument("-g", "--gpuid", type=int)
+ap.add_argument("-c", "--conf", default=None, type=str, dest="config_path", action="store", required=False, help="Path to config file, default: None", metavar="config")
 args = ap.parse_args()
 if args.gpuid is not None:
     set_devices_gpu([args.gpuid])
+if args.config_path is not None:
+    try:
+        with open(args.config_path, 'r') as config_file:
+            config_data = json.load(config_file)
+    except FileNotFoundError:
+        print(f"Config file {args.config_path} not found.")
+        exit(1)
 
+    for key, value in config_data.items():
+        print(f"{key}: {value}")
+
+    #TODO: Input validation function instead, or try except with raise in except block?
+    DATA_DIRECTORY = config_data["DATA_DIRECTORY"]
+    DATASET_NAME = config_data["DATASET_NAME"]
+    MODEL_PREFIX = config_data.get("MODEL_PREFIX", MODEL_PREFIX)
+
+    CUTOFF_RAD = config_data.get("CUTOFF_RAD", CUTOFF_RAD)
+    RS_ARRAY   = config_data.get("RS_ARRAY", RS_ARRAY)
+    ETA_ARRAY  = config_data.get("ETA_ARRAY", ETA_ARRAY)
+
+    CUTOFF_ANG    = config_data.get("CUTOFF_ANG", CUTOFF_ANG)
+    LAMBD_ARRAY   = config_data.get("LAMBD_ARRAY", LAMBD_ARRAY)
+    ZETA_ARRAY    = config_data.get("ZETA_ARRAY", ZETA_ARRAY)
+    ETA_ANG_ARRAY = config_data.get("ETA_ANG_ARRAY", ETA_ANG_ARRAY)
+
+    CHARGE_EPOCHS                = config_data.get("CHARGE_EPOCHS", CHARGE_EPOCHS)
+    CHARGE_INITIAL_LEARNING_RATE = config_data.get("CHARGE_INITIAL_LEARNING_RATE", CHARGE_INITIAL_LEARNING_RATE)
+    CHARGE_FINAL_LEARNING_RATE   = config_data.get("CHARGE_FINAL_LEARNING_RATE", CHARGE_FINAL_LEARNING_RATE)
+    CHARGE_HIDDEN_LAYERS         = config_data.get("CHARGE_HIDDEN_LAYERS", CHARGE_HIDDEN_LAYERS)
+    CHARGE_HIDDEN_ACTIVATION     = config_data.get("CHARGE_HIDDEN_ACTIVATION", CHARGE_HIDDEN_ACTIVATION)
+    CHARGE_BATCH_SIZE            = config_data.get("CHARGE_BATCH_SIZE", CHARGE_BATCH_SIZE)
+    CHARGE_EARLY_STOPPING        = config_data.get("CHARGE_EARLY_STOPPING", CHARGE_EARLY_STOPPING)
+
+    ENERGY_EPOCHS                = config_data.get("ENERGY_EPOCHS", ENERGY_EPOCHS)
+    ENERGY_INITIAL_LEARNING_RATE = config_data.get("ENERGY_INITIAL_LEARNING_RATE", ENERGY_INITIAL_LEARNING_RATE)
+    ENERGY_FINAL_LEARNING_RATE   = config_data.get("ENERGY_FINAL_LEARNING_RATE", ENERGY_FINAL_LEARNING_RATE)
+    ENERGY_HIDDEN_LAYERS         = config_data.get("ENERGY_HIDDEN_LAYERS", ENERGY_HIDDEN_LAYERS)
+    ENERGY_HIDDEN_ACTIVATION     = config_data.get("ENERGY_HIDDEN_ACTIVATION", ENERGY_HIDDEN_ACTIVATION)
+    ENERGY_BATCH_SIZE            = config_data.get("ENERGY_BATCH_SIZE", ENERGY_BATCH_SIZE)
+    ENERGY_EARLY_STOPPING        = config_data.get("ENERGY_EARLY_STOPPING", ENERGY_EARLY_STOPPING)    
+
+file_name = f"{DATASET_NAME}.csv"
+print("Dataset:", DATA_DIRECTORY+file_name)
 data_directory = os.path.normpath(DATA_DIRECTORY)
 dataset = MemoryGraphDataset(data_directory=data_directory, dataset_name=DATASET_NAME)
 dataset.load()
@@ -52,31 +124,23 @@ dataset.load()
 #dataset=dataset[:10]
 print(dataset[0].keys())
 
-elemental_mapping = [1, 6, 16]
-
-# Standard Hyperparameters
-# Radial parameters
-cutoff_rad = 20
-Rs_array   = [0.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
-eta_array  = [0.0, 0.03, 0.08, 0.16, 0.3, 0.5]
-
-# Angular parameters
-cutoff_ang    = 12
-lambd_array   = [-1, 1]
-zeta_array    = [1, 2, 4, 8, 16]
-eta_ang_array = eta_array
-
 # # Hyperparameters from search
 # # Radial parameters
-# cutoff_rad = 20
-# Rs_array   = [0.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0]
-# eta_array  = [0.0, 0.06, 0.16, 0.32, 0.6, 0.8, 1.0]
+# CUTOFF_RAD = 20
+# RS_ARRAY   = [0.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0]
+# ETA_ARRAY  = [0.0, 0.06, 0.16, 0.32, 0.6, 0.8, 1.0]
 
 # # Angular parameters
-# cutoff_ang    = 8
-# lambd_array   = [-1, 0, 1]
-# zeta_array    = [2, 8, 16]
-# eta_ang_array = eta_array
+# CUTOFF_ANG    = 8
+# LAMBD_ARRAY   = [-1, 0, 1]
+# ZETA_ARRAY    = [2, 8, 16]
+# ETA_ANG_ARRAY = ETA_ARRAY
+
+# CHARGE_HIDDEN_LAYERS = [100, 100, 100]
+# CHARGE_HIDDEN_ACTIVATION = ["relu", "relu", "relu"]
+
+# ENERGY_HIDDEN_LAYERS = [100, 100, 100]
+# ENERGY_HIDDEN_ACTIVATION = ["swish", "swish", "swish"]
 
 model_config = {
     "name": "HDNNP4th",
@@ -87,24 +151,16 @@ model_config = {
                {"shape": (1,), "name": "total_charge", "dtype": "float32", "ragged": False},
                {"shape": (None,), "name": "esp", "dtype": "float32", "ragged": True},
                {"shape": (None, 3), "name": "esp_grad", "dtype": "float32", "ragged": True}],
-    "g2_kwargs": {"eta": eta_array, "rs": Rs_array, "rc": cutoff_rad, "elements": elemental_mapping},
-    "g4_kwargs": {"eta": eta_ang_array, "zeta": zeta_array, "lamda": lambd_array, "rc": cutoff_ang
-                  , "elements": elemental_mapping, "multiplicity": 2.0},
+    "g2_kwargs": {"eta": ETA_ARRAY, "rs": RS_ARRAY, "rc": CUTOFF_RAD, "elements": ELEMENTAL_MAPPING},
+    "g4_kwargs": {"eta": ETA_ANG_ARRAY, "zeta": ZETA_ARRAY, "lamda": LAMBD_ARRAY, "rc": CUTOFF_ANG
+                  , "elements": ELEMENTAL_MAPPING, "multiplicity": 2.0},
     "normalize_kwargs": {},
-    # # Original MLPs
-    "mlp_charge_kwargs": {"units": [15, 1],
-                          "num_relations": 96,
-                          "activation": ["tanh", "linear"]},
-    "mlp_local_kwargs": {"units": [35, 35, 1],
-                         "num_relations": 96,
-                         "activation": ["tanh", "tanh", "linear"]},
-    # # Hyperparamter search MLPs
-    # "mlp_charge_kwargs": {"units": [100, 100, 100, 1],
-    #                       "num_relations": 50,
-    #                       "activation": ["relu", "relu", "relu", "linear"]},
-    # "mlp_local_kwargs": {"units": [100, 100, 100, 1],
-    #                      "num_relations": 50,
-    #                      "activation": ["swish", "swish", "swish", "linear"]},
+    "mlp_charge_kwargs": {"units": CHARGE_HIDDEN_LAYERS+[1],
+                          "num_relations": 30,
+                          "activation": CHARGE_HIDDEN_ACTIVATION+["linear"]},
+    "mlp_local_kwargs": {"units": ENERGY_HIDDEN_LAYERS+[1],
+                         "num_relations": 30,
+                         "activation": ENERGY_HIDDEN_ACTIVATION+["linear"]},
     "cent_kwargs": {},
     "electrostatic_kwargs": {"name": "electrostatic_layer",
                              "use_physical_params": True,
@@ -164,16 +220,26 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
     )
 
     scheduler = LinearLearningRateScheduler(
-        learning_rate_start=1e-3, learning_rate_stop=1e-8, epo_min=0, epo=1000)
+        learning_rate_start=CHARGE_INITIAL_LEARNING_RATE,
+        learning_rate_stop=CHARGE_FINAL_LEARNING_RATE,
+        epo_min=0,
+        epo=CHARGE_EPOCHS)
+
+    earlystop = ks.callbacks.EarlyStopping(monitor="val_loss",
+        mode="min",
+        patience=CHARGE_EARLY_STOPPING,
+        verbose=0)
 
     start = time.process_time()
     charge_hist = model_charge.fit(
         x_train, charge_train,
-        callbacks=[scheduler
+        callbacks=[
+            scheduler,
+            earlystop
         ],
         validation_data=(x_test, charge_test),
-        epochs=1000,
-        batch_size=128,
+        epochs=CHARGE_EPOCHS,
+        batch_size=CHARGE_BATCH_SIZE,
         verbose=2
     )
     stop = time.process_time()
@@ -206,22 +272,32 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
     )
     
     scheduler = LinearLearningRateScheduler(
-        learning_rate_start=1e-3, learning_rate_stop=1e-8, epo_min=0, epo=1000)
+        learning_rate_start=ENERGY_INITIAL_LEARNING_RATE,
+        learning_rate_stop=ENERGY_FINAL_LEARNING_RATE,
+        epo_min=0,
+        epo=ENERGY_EPOCHS)
+
+    earlystop = ks.callbacks.EarlyStopping(monitor="val_loss",
+        mode="min",
+        patience=ENERGY_EARLY_STOPPING,
+        verbose=0)
     
     start = time.process_time()
     hist = model_energy_force.fit(
         x_train, energy_force_train,
-        callbacks=[scheduler
+        callbacks=[
+            scheduler,
+            earlystop
         ],
         validation_data=(x_test, energy_force_test),
-        epochs=1000,
+        epochs=ENERGY_EPOCHS,
         batch_size=64,
         verbose=2
     )
     stop = time.process_time()
     print("Print Time for training: ", str(timedelta(seconds=stop - start)))
     hists.append(hist)
-    model_energy_force.save("model_energy_force"+str(model_index))
+    model_energy_force.save(MODEL_PREFIX+str(model_index))
     model_index += 1
 
 model_energy.summary()

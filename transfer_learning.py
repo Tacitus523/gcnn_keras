@@ -30,7 +30,6 @@ DATASET_NAME = "ThiolDisulfidExchange"
 MODEL_PREFIX = "/data/lpetersen/tests/adaptive_sampling/model_energy_force"
 EPOCHS = 100
 
-
 # Ability to restrict the model to only use a certain GPU, which is passed with python -g gpu_id
 ap = argparse.ArgumentParser(description="Handle gpu_ids and training parameters")
 ap.add_argument("-g", "--gpuid", type=int)
@@ -45,6 +44,9 @@ if args.config_path is not None:
     except FileNotFoundError:
         print(f"Config file {args.config_path} not found.")
         exit(1)
+
+    for key, value in config_data.items():
+        print(f"{key}: {value}")
     
     #TODO: Input validation function instead, or try except with raise in except block?
     DATA_DIRECTORY = config_data["DATA_DIRECTORY"]
@@ -58,7 +60,6 @@ data_directory = os.path.join(os.path.dirname(__file__), os.path.normpath(DATA_D
 dataset = MemoryGraphDataset(data_directory=data_directory, dataset_name=DATASET_NAME)
 dataset.load()
 #dataset=dataset[:10]
-print("Dataset:", DATA_DIRECTORY+file_name)
 
 inputs = [{"shape": (None,), "name": "node_number", "dtype": "int64", "ragged": True},
           {"shape": (None, 3), "name": "node_coordinates", "dtype": "float32", "ragged": True},
@@ -101,8 +102,15 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
     energy_force_train = dataset[train_index].tensor(outputs)
     energy_force_test = dataset[test_index].tensor(outputs)
 
+    charge_mlp_layer = model_energy_force.layers[0].layers[10]
+    assert "relational_mlp" in charge_mlp_layer.name, "This is not a relational MLP, double check your model"
+    charge_mlp_layer.trainable = False
+    electrostatic_layer = model_energy_force.layers[0].layers[13]
+    assert "electrostatic_layer" in electrostatic_layer.name, "This is not an electrostatic_layer, double check your model"
+    electrostatic_layer.trainable = False
+
     scheduler = LinearLearningRateScheduler(
-        learning_rate_start=1e-3, learning_rate_stop=1e-8, epo_min=0, epo=EPOCHS)
+        learning_rate_start=1e-7, learning_rate_stop=1e-9, epo_min=0, epo=EPOCHS)
     
     start = time.process_time()
     hist = model_energy_force.fit(
