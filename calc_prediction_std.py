@@ -19,13 +19,27 @@ from kgcnn.data.base import MemoryGraphList, MemoryGraphDataset
 from kgcnn.data.transform.scaler.force import EnergyForceExtensiveLabelScaler
 from kgcnn.model.force import EnergyForceModel
 from kgcnn.utils.plots import plot_predict_true
+from kgcnn.utils import constants
+from kgcnn.utils.devices import set_devices_gpu
 
-data_directory="/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_combined/"
-#data_directory="/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_water/"
+model_paths = [
+    "/home/lpetersen/best_models/model_energy_force0",
+    "/home/lpetersen/best_models/model_energy_force1",
+    "/home/lpetersen/best_models/model_energy_force2"
+]
+
+data_directory="/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_water/"
 dataset_name="ThiolDisulfidExchange"
 
 file_name=f"{dataset_name}.csv"
 print("Dataset:", data_directory+file_name)
+
+# Ability to restrict the model to only use a certain GPU, which is passed with python -g gpu_id
+ap = argparse.ArgumentParser(description="Handle gpu_ids")
+ap.add_argument("-g", "--gpuid", type=int)
+args = ap.parse_args()
+if args.gpuid is not None:
+    set_devices_gpu([args.gpuid])
 
 dataset = MemoryGraphDataset(data_directory=data_directory, dataset_name=dataset_name)
 dataset.load()
@@ -46,21 +60,19 @@ outputs = [
 ]
 charge_output = {"name": "charge", "shape": (None, 1), "ragged": True}
 
-model_paths = [
-    "/data/lpetersen/Behler_training/thiol_disulfide/07_esp_derivative/B3LYP_aug-cc-pVTZ_combined/multi_kgcnn_vacuum_minimum/model_energy_force0",
-    "/data/lpetersen/Behler_training/thiol_disulfide/07_esp_derivative/B3LYP_aug-cc-pVTZ_combined/multi_kgcnn_vacuum_minimum/model_energy_force1",
-    "/data/lpetersen/Behler_training/thiol_disulfide/07_esp_derivative/B3LYP_aug-cc-pVTZ_combined/multi_kgcnn_vacuum_minimum/model_energy_force2"
-]
-
 models = [tf.keras.models.load_model(model_path, compile=False) for model_path in model_paths]
 
 predicted_charges, predicted_energies, predicted_forces = [], [], []
-for model in models:
-    predicted_charge, predicted_energy, predicted_force = model.predict(dataset.tensor(inputs), verbose=0)
 
-    predicted_charges.append(predicted_charge)
-    predicted_energies.append(predicted_energy)
-    predicted_forces.append(predicted_force)
+kf = KFold(n_splits=3, random_state=42, shuffle=True)
+for train_index, _ in kf.split(X=np.expand_dims(np.array(dataset.get("graph_labels")), axis=-1)): # using train_index cause shorter
+    for model in models:
+        predicted_charge, predicted_energy, predicted_force = model.predict(dataset[train_index].tensor(inputs), verbose=2)
+
+        predicted_charges.append(predicted_charge)
+        predicted_energies.append(predicted_energy)
+        predicted_forces.append(predicted_force)
+    break
 
 del models
  
@@ -76,18 +88,41 @@ charge_std = tf.math.reduce_std(tf.squeeze(predicted_charges, axis=-1), axis=0)
 energy_std = tf.math.reduce_std(predicted_energies, axis=0)
 force_std = tf.math.reduce_std(predicted_forces, axis=0)
 
+mean_charge_mean = tf.reduce_mean(predicted_charges)
+mean_energy_mean = tf.reduce_mean(predicted_energies)
+mean_force_mean = tf.reduce_mean(predicted_forces)
 
 max_charge_std = tf.reduce_max(charge_std)
 max_energy_std = tf.reduce_max(energy_std)
 max_force_std = tf.reduce_max(force_std)
 
+print("Mean Charge Std:", mean_charge_mean)
+print("Mean Energy Std:", mean_energy_mean)
+print("Mean Force Std:", mean_force_mean)
+
 print("Max Charge Std:", max_charge_std)
 print("Max Energy Std:", max_energy_std)
 print("Max Force Std:", max_force_std)
 
-true_charge = np.array(dataset.get("charge")).reshape(-1,1)
+true_charge = np.array(dataset[train_index].get("charge")).reshape(-1,1)
+true_energy = np.array(dataset[train_index].get("graph_labels")).reshape(-1,1)*constants.hartree_to_kcalmol
+true_force = np.array(dataset[train_index].get("force")).reshape(-1,1)
+
 predicted_charge = np.array(predicted_charge).reshape(-1,1)
+predicted_energy = np.array(predicted_energy).reshape(-1,1)*constants.hartree_to_kcalmol
+predicted_force = np.array(predicted_force).reshape(-1,1)
+
 plot_predict_true(predicted_charge, true_charge,
     filepath="", data_unit="e",
     model_name="HDNNP", dataset_name=dataset_name, target_names="Charge",
-    error="RMSE", file_name=f"predict_charge_full_dataset.png", show_fig=False)
+    error="RMSE", file_name=f"predict_charge_std_calc.png", show_fig=False)
+
+plot_predict_true(predicted_energy, true_energy,
+    filepath="", data_unit=r"$\frac{kcal}{mol}$",
+    model_name="HDNNP", dataset_name=dataset_name, target_names="Energy",
+    error="RMSE", file_name=f"predict_energy_std_calc.png", show_fig=False)
+
+plot_predict_true(predicted_force, true_force,
+    filepath="", data_unit="Eh/B",
+    model_name="HDNNP", dataset_name=dataset_name, target_names="Force",
+    error="RMSE", file_name=f"predict_force_std_calc.png", show_fig=False)

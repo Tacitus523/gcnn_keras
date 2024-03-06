@@ -17,6 +17,7 @@ tf.get_logger().setLevel("ERROR")
 ks=tf.keras
 print(tf.config.list_physical_devices('GPU'))
 import keras_tuner as kt
+from tensorflow.keras.activations import relu, tanh, elu, selu
 
 from kgcnn.graph.base import GraphDict
 from kgcnn.data.base import MemoryGraphList, MemoryGraphDataset
@@ -37,7 +38,7 @@ DATA_DIRECTORY = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_water/"
 
 DATASET_NAME = "ThiolDisulfidExchange"
 
-TRIAL_DIRECTORY = "/data/lpetersen/Behler_training/thiol_disulfide/07_esp_derivative/B3LYP_aug-cc-pVTZ_water/force_hp_search_03/trials"
+TRIAL_DIRECTORY = "/data/lpetersen/Behler_training/thiol_disulfide/07_esp_derivative/B3LYP_aug-cc-pVTZ_water/force_hp_search_05/trials"
 # Retrieve a specific trial ID from your tuner search, purpose changed, not used anymore
 TRIAL_ID = "0427"  # Replace with the actual trial ID
 
@@ -69,6 +70,31 @@ outputs = [
 ]
 
 x_test, y_test = dataset[[0]].tensor(input_config), dataset[[0]].tensor(outputs)
+
+# Define a custom Swish activation function, Tensorflow one has problems with saving custom gradients
+def custom_swish(x):
+    return x * tf.sigmoid(x)
+
+# Define Leaky ReLU as a custom activation function
+def leaky_relu(x):
+    return tf.keras.activations.relu(x, alpha=0.2)
+
+# Wrapper function to select activation dynamically
+def custom_activation(x, activation):
+    if activation == 'swish':
+        return custom_swish(x)
+    elif activation == 'leaky_relu':
+        return leaky_relu(x)
+    elif activation == 'relu':
+        return relu(x)
+    elif activation == 'tanh':
+        return tanh(x)
+    elif activation == 'elu':
+        return elu(x)
+    elif activation == 'selu':
+        return selu(x)
+    else:
+        raise ValueError(f"Unsupported activation: {activation}")
 
 def zero_loss_function(y_true, y_pred):
     return 0
@@ -122,7 +148,7 @@ class MyHyperModel(kt.HyperModel):
         charge_layers.append(1)
 
         charge_activation = hp.Choice("charge_activation", ["relu", "tanh", "elu", "selu", "swish"])
-        charge_activations = [charge_activation]*charge_n_layers + ["linear"]
+        charge_activations = [lambda x: custom_activation(x, charge_activation)]*charge_n_layers + ["linear"]
 
         energy_n_layers = hp.Int("energy_n_layers", 1, 3, 1)
         energy_layers = []
@@ -134,7 +160,7 @@ class MyHyperModel(kt.HyperModel):
         energy_layers.append(1)
 
         energy_activation = hp.Choice("energy_activation", ["relu", "tanh", "elu", "selu", "swish"])
-        energy_activations = [energy_activation]*energy_n_layers + ["linear"]
+        energy_activations = [lambda x: custom_activation(x, energy_activation)]*energy_n_layers + ["linear"]
 
         elemental_mapping = [1, 6, 16]
         model_config = {
@@ -259,7 +285,7 @@ tuner = kt.Hyperband(my_hyper_model, objective=kt.Objective("val_loss", directio
                      max_consecutive_failed_trials=1)
 
 
-tuner.results_summary(5)
+tuner.results_summary(20)
 # # Build the model using the hyperparameters from the specified trial
 # target_trial = tuner.oracle.get_trial(TRIAL_ID)
 # target_trial.display_hyperparameters()
@@ -272,17 +298,23 @@ tuner.results_summary(5)
 #     model.predict(x_test, verbose=0)
 #     model.save("model_energy_force"+str(idx))
 
-n_best_hps = tuner.get_best_hyperparameters(num_trials=5)
+n_best_hps = tuner.get_best_hyperparameters(num_trials=20)
 
 charge_hists = []
 hists = []
 epochs = 500
 
 kf = KFold(n_splits=3, random_state=42, shuffle=True)
-model_indexes = [0,3,4]
+model_indexes = [0,0,0]
 model_index = 0
 for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("graph_labels")), axis=-1)):
-    best_model_force = tuner.hypermodel.build(n_best_hps[model_indexes[model_index]]) # New initialized model
+    model_hp = n_best_hps[model_indexes[model_index]]
+    print("")
+    print(f"Model {model_index}: Hyperparameters {model_indexes[model_index]}")
+    for key, value in model_hp.values.items():
+        print(f"{key}: {value}")
+    print("")
+    best_model_force = tuner.hypermodel.build(model_hp) # New initialized model
     best_model_charge = tuner.hypermodel.model_charge
 
     x_train = dataset[train_index].tensor(input_config)
@@ -294,7 +326,7 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
 
     start = time.process_time()
     hist = tuner.hypermodel.fit(
-        n_best_hps[model_indexes[model_index]],
+        model_hp,
         best_model_force,
         x_train, energy_force_train,
         callbacks=callbacks,

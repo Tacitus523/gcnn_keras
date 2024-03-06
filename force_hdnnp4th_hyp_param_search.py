@@ -17,6 +17,7 @@ tf.get_logger().setLevel("ERROR")
 ks=tf.keras
 print(tf.config.list_physical_devices('GPU'))
 import keras_tuner as kt
+from tensorflow.keras.activations import relu, tanh, elu, selu
 
 from kgcnn.graph.base import GraphDict
 from kgcnn.data.base import MemoryGraphList, MemoryGraphDataset
@@ -69,6 +70,31 @@ outputs = [
     {"name": "force", "shape": (None, 3), "ragged": True}
 ]
 
+# Define a custom Swish activation function, Tensorflow one has problems with saving custom gradients
+def swish(x):
+    return x * tf.sigmoid(x)
+
+# Define Leaky ReLU as a custom activation function
+def leaky_relu(x):
+    return tf.keras.activations.relu(x, alpha=0.2)
+
+# Wrapper function to select activation dynamically
+def custom_activation(x, activation):
+    if activation == 'swish':
+        return swish(x)
+    elif activation == 'leaky_relu':
+        return leaky_relu(x)
+    elif activation == 'relu':
+        return relu(x)
+    elif activation == 'tanh':
+        return tanh(x)
+    elif activation == 'elu':
+        return elu(x)
+    elif activation == 'selu':
+        return selu(x)
+    else:
+        raise ValueError(f"Unsupported activation: {activation}")
+
 def zero_loss_function(y_true, y_pred):
     return 0
 
@@ -88,13 +114,13 @@ class MyHyperModel(kt.HyperModel):
         # eta_ang_array = eta_array
 
         # Radial parameters
-        cutoff_rad = hp.Float("cutoff_rad", 8, 30, 4)
+        cutoff_rad = hp.Float("cutoff_rad", 8, 30, 8)
         Rs_array_choice = hp.Choice("Rs_array", [
             #"0.0 4.0 6.0 8.0",
             #"0.0 3.0 5.0 7.0 9.0",
             "0.0 3.0 4.0 5.0 6.0 7.0 8.0",
             "0.0 4.0 6.0 8.0 10.0 12.0 16.0",
-            "0.0 3.0 4.0 5.0 6.0 7.0 8.0 9.0 10.0 11.0 12.0"
+            #"0.0 3.0 4.0 5.0 6.0 7.0 8.0 9.0 10.0 11.0 12.0"
         ])
         Rs_array = [float(x) for x in Rs_array_choice.split()]
         eta_array_choice  = hp.Choice("eta_array", [
@@ -102,11 +128,11 @@ class MyHyperModel(kt.HyperModel):
             #"0.03 0.16 0.5",
             "0.0 0.03 0.08 0.16 0.3 0.5",
             "0.0 0.06 0.16 0.32 0.6 0.8 1.0",
-            "0.0 0.03 0.08 0.16 0.3 0.5 0.6 0.75 0.9 1.0"
+            #"0.0 0.03 0.08 0.16 0.3 0.5 0.6 0.75 0.9 1.0"
         ])
         eta_array = [float(x) for x in eta_array_choice.split()]
         # Angular parameters
-        cutoff_ang = hp.Float("cutoff_ang", 8, 30, 4)
+        cutoff_ang = hp.Float("cutoff_ang", 8, 30, 8)
         lambd_array_choice = hp.Choice("lamb_array", [
             "-1 1",
             "-1 0 1", 
@@ -117,7 +143,7 @@ class MyHyperModel(kt.HyperModel):
             #"2 8 16",
             "1 4 8 16",
             "1 2 4 8 16",
-            "1 2 4 8 16 32"
+            #"1 2 4 8 16 32"
         ])
         zeta_array = [float(x) for x in zeta_array_choice.split()]
         eta_ang_array = eta_array
@@ -131,8 +157,8 @@ class MyHyperModel(kt.HyperModel):
             charge_layers.append(charge_neurons)
         charge_layers.append(1)
 
-        charge_activation = hp.Choice("charge_activation", ["relu", "tanh", "elu", "selu"])
-        charge_activations = [charge_activation]*charge_n_layers + ["linear"]
+        charge_activation = hp.Choice("charge_activation", ["relu", "tanh", "elu", "selu", "swish", "leaky_relu"])
+        charge_activations = [lambda x: custom_activation(x, charge_activation)]*charge_n_layers + ["linear"]
 
         energy_n_layers = hp.Int("energy_n_layers", 1, 3, 1)
         energy_layers = []
@@ -143,8 +169,8 @@ class MyHyperModel(kt.HyperModel):
             energy_layers.append(energy_neurons)
         energy_layers.append(1)
 
-        energy_activation = hp.Choice("energy_activation", ["relu", "tanh", "elu", "selu"])
-        energy_activations = [energy_activation]*energy_n_layers + ["linear"]
+        energy_activation = hp.Choice("energy_activation", ["relu", "tanh", "elu", "selu", "swish", "leaky_relu"])
+        energy_activations = [lambda x: custom_activation(x, energy_activation)]*energy_n_layers + ["linear"]
 
         elemental_mapping = [1, 6, 16]
         model_config = {
@@ -195,7 +221,7 @@ class MyHyperModel(kt.HyperModel):
 
         # force_loss_factor = hp.Int("force_loss_factor", 1, 202, 50)
         force_loss_factor = 200
-        lr_schedule = ks.optimizers.schedules.CosineDecayRestarts(initial_learning_rate=1e-4, first_decay_steps=1e4, t_mul=1.5, m_mul=0.3, alpha=1e-4)
+        lr_schedule = ks.optimizers.schedules.CosineDecayRestarts(initial_learning_rate=1e-4, first_decay_steps=1e4, t_mul=1.2, m_mul=0.3, alpha=1e-5)
         self.force_loss_factor = force_loss_factor
         self.lr_schedule = lr_schedule
         model_energy_force.compile(

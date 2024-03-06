@@ -176,15 +176,20 @@ model = tf.keras.models.load_model(model_path, compile=False)
 
 model.summary()
 
-scaler = EnergyForceExtensiveLabelScaler()
-scaler_mapping = {"atomic_number": "node_number", "y": ["graph_labels", "force"]}
-scaler.fit_transform_dataset(dataset, **scaler_mapping)
-predicted_charge, predicted_energy, predicted_force= model.predict(dataset.tensor(inputs), verbose=2)
+# scaler = EnergyForceExtensiveLabelScaler()
+# scaler_mapping = {"atomic_number": "node_number", "y": ["graph_labels", "force"]}
+# scaler.fit_transform_dataset(dataset, **scaler_mapping)
 
-scaler.inverse_transform_dataset(dataset, **scaler_mapping)
-true_charge = np.array(dataset.get("charge")).reshape(-1,1)
-true_energy = np.array(dataset.get("graph_labels")).reshape(-1,1)*constants.hartree_to_kcalmol
-true_force = np.array(dataset.get("force")).reshape(-1,1)
+kf = KFold(n_splits=3, random_state=42, shuffle=True)
+
+for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("graph_labels")), axis=-1)):
+    predicted_charge, predicted_energy, predicted_force= model.predict(dataset[test_index].tensor(inputs), verbose=2)
+    break
+
+#scaler.inverse_transform_dataset(dataset, **scaler_mapping)
+true_charge = np.array(dataset[test_index].get("charge")).reshape(-1,1)
+true_energy = np.array(dataset[test_index].get("graph_labels")).reshape(-1,1)*constants.hartree_to_kcalmol
+true_force = np.array(dataset[test_index].get("force")).reshape(-1,1)
 
 predicted_charge = np.array(predicted_charge).reshape(-1,1)
 predicted_energy = np.array(predicted_energy).reshape(-1,1)*constants.hartree_to_kcalmol
