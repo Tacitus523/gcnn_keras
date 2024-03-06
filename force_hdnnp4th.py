@@ -265,7 +265,7 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
     )
 
     model_energy_force.compile(
-        loss=[zero_loss_function, "mean_squared_error", "mean_squared_error"],
+        loss=["mean_squared_error", "mean_squared_error", "mean_squared_error"],
         optimizer=ks.optimizers.Adam(),
         metrics=None,
         loss_weights=[0, 1, 199]
