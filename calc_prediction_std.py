@@ -12,7 +12,6 @@ from sklearn.model_selection import KFold
 import tensorflow as tf
 tf.get_logger().setLevel("ERROR")
 ks=tf.keras
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 print(tf.config.list_physical_devices('GPU'))
 
 from kgcnn.data.base import MemoryGraphList, MemoryGraphDataset
@@ -23,12 +22,12 @@ from kgcnn.utils import constants
 from kgcnn.utils.devices import set_devices_gpu
 
 model_paths = [
-    "/data/lpetersen/Behler_training/thiol_disulfide/07_esp_derivative/B3LYP_aug-cc-pVTZ_vacuum/kgcnn/model_energy_force0",
-    "/data/lpetersen/Behler_training/thiol_disulfide/07_esp_derivative/B3LYP_aug-cc-pVTZ_vacuum/kgcnn/model_energy_force1",
-    "/data/lpetersen/Behler_training/thiol_disulfide/07_esp_derivative/B3LYP_aug-cc-pVTZ_vacuum/kgcnn/model_energy_force2"
+    "model_energy_force0",
+    "model_energy_force1",
+    "model_energy_force2"
 ]
 
-data_directory="/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_vacuum/"
+data_directory="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_water/adaptive_sampling"
 dataset_name="ThiolDisulfidExchange"
 
 file_name=f"{dataset_name}.csv"
