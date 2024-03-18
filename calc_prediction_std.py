@@ -23,12 +23,12 @@ from kgcnn.utils import constants
 from kgcnn.utils.devices import set_devices_gpu
 
 model_paths = [
-    "/home/lpetersen/best_models/model_energy_force0",
-    "/home/lpetersen/best_models/model_energy_force1",
-    "/home/lpetersen/best_models/model_energy_force2"
+    "/data/lpetersen/Behler_training/thiol_disulfide/07_esp_derivative/B3LYP_aug-cc-pVTZ_vacuum/kgcnn/model_energy_force0",
+    "/data/lpetersen/Behler_training/thiol_disulfide/07_esp_derivative/B3LYP_aug-cc-pVTZ_vacuum/kgcnn/model_energy_force1",
+    "/data/lpetersen/Behler_training/thiol_disulfide/07_esp_derivative/B3LYP_aug-cc-pVTZ_vacuum/kgcnn/model_energy_force2"
 ]
 
-data_directory="/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_water/"
+data_directory="/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_vacuum/"
 dataset_name="ThiolDisulfidExchange"
 
 file_name=f"{dataset_name}.csv"
@@ -92,13 +92,21 @@ mean_charge_mean = tf.reduce_mean(predicted_charges)
 mean_energy_mean = tf.reduce_mean(predicted_energies)
 mean_force_mean = tf.reduce_mean(predicted_forces)
 
+mean_charge_std = tf.reduce_mean(charge_std)
+mean_energy_std = tf.reduce_mean(energy_std)
+mean_force_std = tf.reduce_mean(force_std)
+
 max_charge_std = tf.reduce_max(charge_std)
 max_energy_std = tf.reduce_max(energy_std)
 max_force_std = tf.reduce_max(force_std)
 
-print("Mean Charge Std:", mean_charge_mean)
-print("Mean Energy Std:", mean_energy_mean)
-print("Mean Force Std:", mean_force_mean)
+print("Mean Charge Mean:", mean_charge_mean)
+print("Mean Energy Mean:", mean_energy_mean)
+print("Mean Force Mean:", mean_force_mean)
+
+print("Mean Charge Std:", mean_charge_std)
+print("Mean Energy Std:", mean_energy_std)
+print("Mean Force Std:", mean_force_std)
 
 print("Max Charge Std:", max_charge_std)
 print("Max Energy Std:", max_energy_std)

@@ -10,10 +10,10 @@ import warnings
 
 OVERWRITE = True # Set to True to enforce the writing in TARGET_FOLDER possibly overwriting data
 
-DATA_FOLDER = "/home/lpetersen/dftb-nn/data/B3LYP_aug-cc-pVTZ_combined" # Folder that contains data the files
+DATA_FOLDER = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_vacuum" # Folder that contains data the files
 GEOMETRY_FILE = "geoms.xyz" # path to geometry-file, gromacs-format, in Angstrom
 ENERGY_FILE = "energy_diff.txt" # path to energy-file, no header, separated by new lines, in Hartree
-CHARGE_FILE = "charges_hirsh.txt" # path to charge-file, one line per molecule geometry,  "" if not available, in elementary charges
+CHARGE_FILE = "charges.txt" # path to charge-file, one line per molecule geometry,  "" if not available, in elementary charges
 ESP_FILE = "esps_by_mm.txt" # path to esp caused by mm atoms, one line per molecule geometry, "" if not available, in V
 ESP_GRAD_FILE = "esp_gradients.txt" # path to the ESP gradients, "" if not available, in Eh/Bohr^2, I hope
 AT_COUNT = 15 # atom count, used if no charges supplied
@@ -21,7 +21,7 @@ CUTOFF = 10.0 # Max distance for bonds and angles to be considered relevant, Non
 FORCE_FILE = "forces.xyz" # path to force-file, "" if not available, in Eh/Bohr, apparently given like that from Orca
 TOTAL_CHARGE = -1 # total charge of molecule, None if not available, different charges not supported
 PREFIX = "ThiolDisulfidExchange" # prefix to generated files, compulsary for kgcnn read-in
-TARGET_FOLDER = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_water" # target folder to save the data
+TARGET_FOLDER = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_vacuum" # target folder to save the data
 
 BABEL_DATADIR = "/usr/local/run/openbabel-2.4.1" # local installation of openbabel
 os.environ['BABEL_DATADIR'] = BABEL_DATADIR
@@ -65,18 +65,15 @@ def copy_data(geometry_path: str, charge_path: str, esp_path: str, esp_grad_path
     target_esp_grad_path = join(target_path, f"esp_gradients.txt")
     target_force_path = join(target_path, f"forces.xyz")
 
-    if os.path.isfile(geometry_path):
-        if not os.path.isfile(target_geometry_path):
-            shutil.copyfile(geometry_path, target_geometry_path)
-    else:
-        raise FileNotFoundError(f"Geometry file not found at {geometry_path}")
-    if os.path.isfile(charge_path) and not os.path.isfile(target_charge_path):
+    if os.path.abspath(geometry_path) != os.path.abspath(target_geometry_path):
+        shutil.copyfile(geometry_path, target_geometry_path)
+    if os.path.abspath(charge_path) != os.path.abspath(target_charge_path):
         shutil.copyfile(charge_path, target_charge_path)
-    if os.path.isfile(esp_path) and not os.path.isfile(target_esp_path):
+    if os.path.abspath(esp_path) != os.path.abspath(target_esp_path):
         shutil.copyfile(esp_path, target_esp_path)
-    if os.path.isfile(esp_grad_path) and not os.path.isfile(target_esp_grad_path):
+    if os.path.abspath(esp_grad_path) != os.path.abspath(target_esp_grad_path):
         shutil.copyfile(esp_grad_path, target_esp_grad_path)
-    if os.path.isfile(force_path) and not os.path.isfile(target_force_path):
+    if os.path.abspath(force_path) != os.path.abspath(target_force_path):
         shutil.copyfile(force_path, target_force_path)
 
 
