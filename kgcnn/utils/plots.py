@@ -150,10 +150,10 @@ def plot_predict_true(y_predict, y_true, data_unit: list = None, model_name: str
         mae_valid = np.mean(np.abs(delta_valid[~np.isnan(delta_valid)]))
         rmse_valid = np.sqrt(np.mean((delta_valid[~np.isnan(delta_valid)])**2))
         if error == "MAE":
-            plt.scatter(y_predict[:, i], y_true[:, i], alpha=0.3,
+            plt.scatter(y_predict[:, i], y_true[:, i], marker=".", alpha=0.3,
                         label=target_names[i] + " MAE: {0:0.4f} ".format(mae_valid) + "[" + data_unit[i] + "]")
         elif error == "RMSE":
-             plt.scatter(y_predict[:, i], y_true[:, i], alpha=0.3,
+             plt.scatter(y_predict[:, i], y_true[:, i], marker=".", alpha=0.3,
                         label=target_names[i] + " RMSE: {0:0.4f} ".format(rmse_valid) + "[" + data_unit[i] + "]")       
     min_max = np.amin(y_true[~np.isnan(y_true)]), np.amax(y_true[~np.isnan(y_true)])
     plt.plot(np.arange(*min_max, 0.05), np.arange(*min_max, 0.05), color='red')
@@ -173,8 +173,8 @@ def plot_test_set_prediction(data: pd.DataFrame, observation: str, prediction: s
     FONTSIZE  = 18
     LABELSIZE = 15
     if "at_types" in data.columns:
-        plot = sns.lmplot(y=observation, x=prediction, data=data, hue="at_types",
-            scatter_kws={"marker": ".", "alpha": 0.1},
+        plot = sns.lmplot(y=observation, x=prediction, data=data, hue="at_types", markers=".",
+            scatter_kws={"alpha": 0.1},
             line_kws={"linewidth": 3},
             height=6,
             legend=False)
@@ -183,8 +183,8 @@ def plot_test_set_prediction(data: pd.DataFrame, observation: str, prediction: s
         for legend_handle in legend.legendHandles: 
             legend_handle.set_alpha(1)
     else:
-        plot = sns.lmplot(y=observation, x=prediction, data=data,
-            scatter_kws={"marker": ".", "alpha": 0.1},
+        plot = sns.lmplot(y=observation, x=prediction, data=data, markers=".",
+            scatter_kws={"alpha": 0.1},
             line_kws={"linewidth": 1},
             height=6)
     plt.xlabel(f"Prediction {title} [{unit}]", fontsize=FONTSIZE)

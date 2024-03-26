@@ -27,7 +27,7 @@ model_paths = [
     "model_energy_force2"
 ]
 
-data_directory="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_water/adaptive_sampling"
+data_directory="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_water"
 dataset_name="ThiolDisulfidExchange"
 
 file_name=f"{dataset_name}.csv"

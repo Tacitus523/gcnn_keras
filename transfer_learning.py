@@ -75,9 +75,15 @@ outputs = [
     {"name": "force", "shape": (None, 3), "ragged": True}
 ]
 
-@ks.utils.register_keras_serializable(package="kgcnn", name="zero_loss_function")
-def zero_loss_function(y_true, y_pred):
-    return 0
+class LearningRateLoggingCallback(tf.keras.callbacks.Callback):
+    def on_epoch_end(self, epoch, logs=None):
+        optimizer = self.model.optimizer
+        if isinstance(optimizer.lr, tf.keras.optimizers.schedules.LearningRateSchedule):
+            current_lr = optimizer.lr(optimizer.iterations)
+        else:
+            current_lr = optimizer.lr
+        if logs is not None:
+            logs["lr"] = current_lr
 
 model_prefix = os.path.basename(MODEL_PREFIX)
 model_folder = os.path.dirname(MODEL_PREFIX)
@@ -88,34 +94,37 @@ if not model_folder:
 model_paths = [os.path.join(model_folder,item) for item in os.listdir(model_folder) if item.startswith(model_prefix)]
 model_paths.sort()
 
-models = [tf.keras.models.load_model(model_path,
-            custom_objects={"zero_loss_function": zero_loss_function})
+@ks.utils.register_keras_serializable(package="kgcnn", name="zero_loss_function")
+def zero_loss_function(y_true, y_pred):
+    return 0
+models = [tf.keras.models.load_model(model_path, custom_objects={'zero_loss_function': zero_loss_function}, compile=False)
             for model_path in model_paths]
 
 kf = KFold(n_splits=len(models), shuffle=True)
 hists = []
 model_index = 0
 for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("graph_labels")), axis=-1)):
-    model_energy_force = models[model_index]
     x_train = dataset[train_index].tensor(inputs)
     x_test = dataset[test_index].tensor(inputs)
     energy_force_train = dataset[train_index].tensor(outputs)
     energy_force_test = dataset[test_index].tensor(outputs)
 
-    charge_mlp_layer = model_energy_force.layers[0].layers[10]
-    assert "relational_mlp" in charge_mlp_layer.name, "This is not a relational MLP, double check your model"
-    charge_mlp_layer.trainable = False
-    electrostatic_layer = model_energy_force.layers[0].layers[13]
-    assert "electrostatic_layer" in electrostatic_layer.name, "This is not an electrostatic_layer, double check your model"
-    electrostatic_layer.trainable = False
+    model_energy_force = models[model_index]
+    force_loss_factor = 200
+    lr_schedule = ks.optimizers.schedules.CosineDecayRestarts(initial_learning_rate=5e-6, first_decay_steps=5e3, t_mul=1.2, m_mul=0.3, alpha=1e-3)
+    model_energy_force.compile(
+        loss=["mean_squared_error", "mean_squared_error", "mean_squared_error"],
+        optimizer=ks.optimizers.Adam(lr_schedule),
+        loss_weights=[0, 1, force_loss_factor],
+        metrics=None
+    )
 
-    scheduler = LinearLearningRateScheduler(
-        learning_rate_start=1e-7, learning_rate_stop=1e-9, epo_min=0, epo=EPOCHS)
+    lrlog = LearningRateLoggingCallback()
     
     start = time.process_time()
     hist = model_energy_force.fit(
         x_train, energy_force_train,
-        callbacks=[scheduler
+        callbacks=[lrlog
         ],
         validation_data=(x_test, energy_force_test),
         epochs=EPOCHS,

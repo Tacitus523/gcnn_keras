@@ -31,7 +31,7 @@ from kgcnn.metrics.loss import RaggedMeanAbsoluteError
 
 # DEFAULT VALUES
 # DATA READ AND SAVE
-DATA_DIRECTORY = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_water/" # Folder containing DATASET_NAME.kgcnn.pickle
+DATA_DIRECTORY = "/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_water" # Folder containing DATASET_NAME.kgcnn.pickle
 DATASET_NAME = "ThiolDisulfidExchange" # Used in naming plots and looking for data
 MODEL_PREFIX = "model_energy_force" # Will be used to save the models
 
@@ -120,27 +120,8 @@ print("Dataset:", DATA_DIRECTORY+file_name)
 data_directory = os.path.normpath(DATA_DIRECTORY)
 dataset = MemoryGraphDataset(data_directory=data_directory, dataset_name=DATASET_NAME)
 dataset.load()
-#dataset=dataset[5112:]
 #dataset=dataset[:10]
 print(dataset[0].keys())
-
-# # Hyperparameters from search
-# # Radial parameters
-# CUTOFF_RAD = 20
-# RS_ARRAY   = [0.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0]
-# ETA_ARRAY  = [0.0, 0.06, 0.16, 0.32, 0.6, 0.8, 1.0]
-
-# # Angular parameters
-# CUTOFF_ANG    = 8
-# LAMBD_ARRAY   = [-1, 0, 1]
-# ZETA_ARRAY    = [2, 8, 16]
-# ETA_ANG_ARRAY = ETA_ARRAY
-
-# CHARGE_HIDDEN_LAYERS = [100, 100, 100]
-# CHARGE_HIDDEN_ACTIVATION = ["relu", "relu", "relu"]
-
-# ENERGY_HIDDEN_LAYERS = [100, 100, 100]
-# ENERGY_HIDDEN_ACTIVATION = ["swish", "swish", "swish"]
 
 model_config = {
     "name": "HDNNP4th",

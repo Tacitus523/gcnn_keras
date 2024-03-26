@@ -34,12 +34,12 @@ from kgcnn.metrics.loss import RaggedMeanAbsoluteError
 
 from kgcnn.utils.data_splitter import idx_generator
 
-data_directory="/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_water/"
+data_directory="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_water"
 
 dataset_name="ThiolDisulfidExchange"
 
 file_name=f"{dataset_name}.csv"
-print("Dataset:", data_directory+file_name)
+print("Dataset:", os.path.join(data_directory, file_name))
 
 # Ability to restrict the model to only use a certain GPU, which is passed with python -g gpu_id
 ap = argparse.ArgumentParser(description="Handle gpu_ids")
@@ -101,17 +101,6 @@ def zero_loss_function(y_true, y_pred):
 class MyHyperModel(kt.HyperModel):
     def build(self, hp):
         ks.backend.clear_session() # RAM is apparently not released between trials. This should clear some of it, but probably not all. https://github.com/keras-team/keras-tuner/issues/395
-
-        # # Radial parameters
-        # cutoff_rad = 20
-        # Rs_array   = [0.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
-        # eta_array  = [0.0, 0.03, 0.08, 0.16, 0.3, 0.5]
-
-        # # Angular parameters
-        # cutoff_ang    = 12
-        # lambd_array   = [-1, 1]
-        # zeta_array    = [1, 2, 4, 8, 16]
-        # eta_ang_array = eta_array
 
         # Radial parameters
         cutoff_rad = hp.Float("cutoff_rad", 8, 30, 8)
@@ -318,7 +307,7 @@ with open(os.path.join("best_hp.json"), "w") as f:
 model_index = 0
 # best_model_force = tuner.get_best_models(num_models=1)[model_index] # Pretrained during trial
 best_model_force = tuner.hypermodel.build(n_best_hps[model_index]) # New initialized model
-best_model_charge = tuner.hypermodel.charge_model
+best_model_charge = tuner.hypermodel.model_charge
 
 charge_hists = []
 hists = []

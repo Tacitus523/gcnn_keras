@@ -34,13 +34,14 @@ from kgcnn.metrics.loss import RaggedMeanAbsoluteError
 
 from kgcnn.utils.data_splitter import idx_generator
 
-DATA_DIRECTORY = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_water/"
+DATA_DIRECTORY = "/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_vacuum"
 
 DATASET_NAME = "ThiolDisulfidExchange"
 
-TRIAL_DIRECTORY = "/data/lpetersen/Behler_training/thiol_disulfide/07_esp_derivative/B3LYP_aug-cc-pVTZ_water/force_hp_search_05/trials"
+TRIAL_DIRECTORY = "/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/force_hp_search_00/trials"
 # Retrieve a specific trial ID from your tuner search, purpose changed, not used anymore
 TRIAL_ID = "0427"  # Replace with the actual trial ID
+MODEL_INDICES = [0,0,0] # Train a list n-th best models with the respective indices in the list
 
 # Ability to restrict the model to only use a certain GPU, which is passed with python -g gpu_id
 ap = argparse.ArgumentParser(description="Handle gpu_ids")
@@ -305,12 +306,11 @@ hists = []
 epochs = 500
 
 kf = KFold(n_splits=3, random_state=42, shuffle=True)
-model_indexes = [0,0,0]
 model_index = 0
 for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("graph_labels")), axis=-1)):
-    model_hp = n_best_hps[model_indexes[model_index]]
+    model_hp = n_best_hps[MODEL_INDICES[model_index]]
     print("")
-    print(f"Model {model_index}: Hyperparameters {model_indexes[model_index]}")
+    print(f"Model {model_index}: Hyperparameters {MODEL_INDICES[model_index]}")
     for key, value in model_hp.values.items():
         print(f"{key}: {value}")
     print("")

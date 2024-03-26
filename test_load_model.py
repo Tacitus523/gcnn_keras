@@ -15,6 +15,7 @@ ks=tf.keras
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 print(tf.config.list_physical_devices('GPU'))
 
+from kgcnn.graph.base import GraphDict
 from kgcnn.data.base import MemoryGraphList, MemoryGraphDataset
 from kgcnn.data.transform.scaler.force import EnergyForceExtensiveLabelScaler
 from kgcnn.model.force import EnergyForceModel
@@ -49,14 +50,14 @@ def save_poi_inputs(poi, inputs):
             np.savetxt(input_dict["name"]+".txt", numpy_array, "%3.5f")
 
 
-model_path = "model_energy_force0"
+model_path = "../../../model_energy_force0"
 
 #data_directory="/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_combined/"
-data_directory="/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_water/"
+data_directory="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_water"
 dataset_name="ThiolDisulfidExchange"
 
 file_name=f"{dataset_name}.csv"
-print("Dataset:", data_directory+file_name)
+print("Dataset:", os.path.join(data_directory, file_name))
 
 dataset = MemoryGraphDataset(data_directory=data_directory, dataset_name=dataset_name)
 dataset.load()
@@ -70,67 +71,6 @@ dataset.load()
 # print(poi["esp"])
 # print(poi["esp_grad"])
 # exit()
-
-# to remove esp data
-# print("Setting ESP to 0")
-# for i in range(len(dataset)):
-#    dataset[i].set("esp", np.zeros_like(dataset[i]["node_number"],dtype=np.float64))
-# esp_0 = [-0.422, 0.064, -0.762, -0.262, 0.573, 0.781, 1.541, 1.140, 0.510, 0.473, 0.491, 0.236, -0.625, 0.217, 0.983]
-# geom_0 = np.array([
-# [22.903, 17.839, 21.241],
-# [21.448, 18.519, 18.274],
-# [24.718, 18.689, 21.203],
-# [21.751, 18.538, 22.809],
-# [15.250, 21.316, 15.893],
-# [23.187, 24.415, 24.321],
-# [25.492, 27.061, 23.962],
-# [21.467, 25.209, 23.565],
-# [23.546, 22.941, 22.941],
-# [17.102, 18.387, 15.571],
-# [16.006, 19.672, 16.989],
-# [18.122, 21.108, 19.426],
-# [23.225, 15.798, 21.354],
-# [23.149, 23.886, 26.324],
-# [14.551, 18.425, 17.877]])
-# dataset[0].set("esp", esp_0)
-# dataset[0].set("node_coordinates", geom_0)
-
-# esp_1 = [-0.008, -0.226, -0.376, -0.096, -0.251, 0.203, 0.441, 0.244, 0.464, -0.400, -0.456, 0.274, 0.377, 0.046, -0.717]
-# geom_1 = np.array([
-# [210.402, 205.186, 208.437],
-# [208.947, 205.867, 205.470],
-# [212.216, 206.037, 208.399],
-# [209.249, 205.886, 210.005],
-# [202.749, 208.664, 203.089],
-# [210.686, 211.763, 211.517],
-# [212.991, 214.408, 211.158],
-# [208.966, 212.556, 210.761],
-# [211.045, 210.289, 210.138],
-# [204.601, 205.734, 202.768],
-# [203.505, 207.020, 204.185],
-# [205.621, 208.456, 206.623],
-# [210.723, 203.146, 208.550],
-# [210.648, 211.234, 213.520],
-# [202.050, 205.772, 205.073]])
-# esp_grad_1 = np.array([
-# [-0.014, -0.005, -0.006],
-# [ 0.006,  0.002,  0.003],
-# [ 0.008,  0.002,  0.003],
-# [-0.002, -0.004, -0.026],
-# [ 0.002,  0.003,  0.015],
-# [ 0.001,  0.002,  0.011],
-# [-0.013, -0.008, -0.009],
-# [ 0.007,  0.004,  0.004],
-# [ 0.007,  0.004,  0.005],
-# [-0.011, -0.012,  0.003],
-# [ 0.006,  0.006, -0.002],
-# [ 0.006,  0.007, -0.001],
-# [-0.017, -0.009,  0.003],
-# [ 0.010,  0.005, -0.002],
-# [ 0.008,  0.004, -0.001]])
-# dataset[0].set("esp", esp_1)
-# dataset[0].set("node_coordinates", geom_1)
-# dataset[0].set("esp_grad", esp_grad_1)
 
 inputs = [{"shape": (None,), "name": "node_number", "dtype": "int64", "ragged": True},
           {"shape": (None, 3), "name": "node_coordinates", "dtype": "float32", "ragged": True},
@@ -179,6 +119,58 @@ model.summary()
 # scaler = EnergyForceExtensiveLabelScaler()
 # scaler_mapping = {"atomic_number": "node_number", "y": ["graph_labels", "force"]}
 # scaler.fit_transform_dataset(dataset, **scaler_mapping)
+
+elements = np.loadtxt("input_00.txt", dtype=np.int64)
+geom = np.loadtxt("input_02.txt", dtype=np.float32)
+bond_indices = np.loadtxt("input_04.txt", dtype=np.int64)
+angle_indices = np.loadtxt("input_06.txt", dtype=np.int64)
+total_charge = np.loadtxt("input_08.txt", dtype=np.float32)
+esp = np.loadtxt("input_09.txt", dtype=np.float32)
+esp_grad = np.loadtxt("input_11.txt", dtype=np.float32)
+with open("output.txt") as f:
+    outputs = f.readlines()
+n_atoms = len(elements)
+charges = np.array(outputs[:n_atoms], dtype=np.float32)
+energy = np.array(outputs[n_atoms], dtype=np.float32)
+forces = np.array([line.split() for line in outputs[n_atoms+1:]], dtype=np.float32)
+
+data_point = dataset[0]
+data_point.set("node_number", elements)
+data_point.set("node_coordinates", geom)
+data_point.set("range_indices", bond_indices)
+data_point.set("angle_indices_nodes", angle_indices)
+data_point.set("total_charge", total_charge)
+data_point.set("esp", esp)
+data_point.set("esp_grad", esp_grad)
+data_point.set("charge", charges)
+data_point.set("graph_labels", energy)
+data_point.set("force", forces)
+dataset.append(data_point)
+
+
+test_index = [-1]
+input_tensor = dataset[test_index].tensor(inputs)
+predicted_charge, predicted_energy, predicted_force= model.predict(input_tensor, verbose=2)
+predicted_charge = np.array(predicted_charge).reshape(-1,1)
+predicted_energy = np.array(predicted_energy).reshape(-1,1)*constants.hartree_to_kcalmol
+predicted_force = np.array(predicted_force).reshape(-1,1)
+true_charge = np.array(dataset[test_index].get("charge")).reshape(-1,1)
+true_energy = np.array(dataset[test_index].get("graph_labels")).reshape(-1,1)*constants.hartree_to_kcalmol
+true_force = np.array(dataset[test_index].get("force")).reshape(-1,1)
+
+np.set_printoptions(precision=5)
+try:
+    assert np.allclose(predicted_charge, true_charge, atol=1e-05), "Charge Assertion failed"
+    assert np.allclose(predicted_energy, true_energy, atol=1e-05), "Energy Assertion failed"
+    assert np.allclose(predicted_force, true_force, atol=1e-05), "Force Assertion failed"
+except AssertionError:
+    print(predicted_charge.reshape(1,-1))
+    print(true_charge.reshape(1,-1))
+    print(predicted_energy)
+    print(true_energy)
+    print(predicted_force.reshape(1,-1,3))
+    print(true_force.reshape(1,-1,3))
+    raise
 
 kf = KFold(n_splits=3, random_state=42, shuffle=True)
 
