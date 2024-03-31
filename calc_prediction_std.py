@@ -27,11 +27,11 @@ model_paths = [
     "model_energy_force2"
 ]
 
-data_directory="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_water"
+data_directory="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/02_identical_large_model_sampling/adaptive_sampling/current_training_data"
 dataset_name="ThiolDisulfidExchange"
 
 file_name=f"{dataset_name}.csv"
-print("Dataset:", data_directory+file_name)
+print("Dataset:", os.path.join(data_directory, file_name))
 
 # Ability to restrict the model to only use a certain GPU, which is passed with python -g gpu_id
 ap = argparse.ArgumentParser(description="Handle gpu_ids")

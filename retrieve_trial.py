@@ -218,7 +218,7 @@ class MyHyperModel(kt.HyperModel):
         model_energy_force.compile(
             loss=["mean_squared_error", "mean_squared_error", "mean_squared_error"],
             optimizer=ks.optimizers.Adam(lr_schedule),
-            loss_weights=[0, 1, force_loss_factor],
+            loss_weights=[0, 1/force_loss_factor, 1-1/force_loss_factor],
             metrics=None
         )
         return model_energy_force
@@ -254,7 +254,7 @@ class MyHyperModel(kt.HyperModel):
         model.compile(
             loss=["mean_squared_error", "mean_squared_error", "mean_squared_error"],
             optimizer=ks.optimizers.Adam(self.lr_schedule),
-            loss_weights=[0, 1, self.force_loss_factor],
+            loss_weights=[0, 1/self.force_loss_factor, 1-1/self.force_loss_factor],
             metrics=None
         )
 

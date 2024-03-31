@@ -34,9 +34,9 @@ from kgcnn.metrics.loss import RaggedMeanAbsoluteError
 
 from kgcnn.utils.data_splitter import idx_generator
 
-data_directory="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_water"
+data_directory="/lustre/work/ws/ws1/ka_he8978-dipeptide/training_data/B3LYP_aug-cc-pVTZ_water"
 
-dataset_name="ThiolDisulfidExchange"
+dataset_name="Alanindipeptide"
 
 file_name=f"{dataset_name}.csv"
 print("Dataset:", os.path.join(data_directory, file_name))
@@ -161,7 +161,8 @@ class MyHyperModel(kt.HyperModel):
         energy_activation = hp.Choice("energy_activation", ["relu", "tanh", "elu", "selu", "swish", "leaky_relu"])
         energy_activations = [lambda x: custom_activation(x, energy_activation)]*energy_n_layers + ["linear"]
 
-        elemental_mapping = [1, 6, 16]
+        max_elements = 30
+        elemental_mapping = list(range(1, max_elements+1))
         model_config = {
             "name": "HDNNP4th",
             "inputs": input_config,
@@ -170,10 +171,10 @@ class MyHyperModel(kt.HyperModel):
                           "elements": elemental_mapping, "multiplicity": 2.0},
             "normalize_kwargs": {},
             "mlp_charge_kwargs": {"units": charge_layers,
-                                "num_relations": 30,
+                                "num_relations": max_elements,
                                 "activation": charge_activations},
             "mlp_local_kwargs": {"units": energy_layers,
-                                "num_relations": 30,
+                                "num_relations": max_elements,
                                 "activation": energy_activations},
             "cent_kwargs": {},
             "electrostatic_kwargs": {"name": "electrostatic_layer",
@@ -216,7 +217,7 @@ class MyHyperModel(kt.HyperModel):
         model_energy_force.compile(
             loss=["mean_squared_error", "mean_squared_error", "mean_squared_error"],
             optimizer=ks.optimizers.Adam(lr_schedule),
-            loss_weights=[0, 1, force_loss_factor],
+            loss_weights=[0, 1/force_loss_factor, 1-1/force_loss_factor],
             metrics=None
         )
         return model_energy_force
@@ -252,7 +253,7 @@ class MyHyperModel(kt.HyperModel):
         model.compile(
             loss=["mean_squared_error", "mean_squared_error", "mean_squared_error"],
             optimizer=ks.optimizers.Adam(self.lr_schedule),
-            loss_weights=[0, 1, self.force_loss_factor],
+            loss_weights=[0, 1/self.force_loss_factor, 1-1/self.force_loss_factor],
             metrics=None
         )
 
@@ -285,8 +286,8 @@ class LearningRateLoggingCallback(tf.keras.callbacks.Callback):
 # Hyperparameter Search
 max_epochs = 400
 hp_factor = 3
-hyperband_iterations = 2
-batch_size = 32
+hyperband_iterations = 1
+batch_size = 16
 patience = 100
 earlystop = ks.callbacks.EarlyStopping(monitor="val_loss", mode="min", patience=patience, verbose=0)
 lrlog = LearningRateLoggingCallback()

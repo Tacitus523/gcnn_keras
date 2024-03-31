@@ -46,3 +46,4 @@ ExampleQM/
 schnet_save_test.py
 test_scaling_layer.py
 output_scaler.py
+force_hdnnp4th_example_config.json

@@ -31,13 +31,11 @@ from kgcnn.metrics.loss import RaggedMeanAbsoluteError
 
 # DEFAULT VALUES
 # DATA READ AND SAVE
-DATA_DIRECTORY = "/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_water" # Folder containing DATASET_NAME.kgcnn.pickle
-DATASET_NAME = "ThiolDisulfidExchange" # Used in naming plots and looking for data
+DATA_DIRECTORY = "/lustre/work/ws/ws1/ka_he8978-dipeptide/training_data/B3LYP_aug-cc-pVTZ_water" # Folder containing DATASET_NAME.kgcnn.pickle
+DATASET_NAME = "Alanindipeptide" # Used in naming plots and looking for data
 MODEL_PREFIX = "model_energy_force" # Will be used to save the models
 
 # SYMMETRY FUNCTION HYPER PARAMETERS
-ELEMENTAL_MAPPING = [1, 6, 16] # Parameters can be given individually per element. This list maps the parameters to its element
-
 # Radial parameters
 CUTOFF_RAD = 20 # Radial cutoff distance in Bohr
 RS_ARRAY   = [0.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0] # Shift parameter Rs in Bohr
@@ -48,6 +46,10 @@ CUTOFF_ANG    = 12 # Angular cutoff distance in Bohr
 LAMBD_ARRAY   = [-1, 1] # Lambda parameter
 ZETA_ARRAY    = [1, 2, 4, 8, 16] # Zeta parameter
 ETA_ANG_ARRAY = ETA_ARRAY # Width parameter eta in 1/Bohr^2
+
+# Assignment of parameters to elements
+MAX_ELEMENTS = 30 # Length of the array with the symmetry function parameters, the highest possible atomic number of the elements is determined by this
+ELEMENTAL_MAPPING = list(range(1, MAX_ELEMENTS+1)) # Parameters can be given individually per element. This list maps the parameters to its element
 
 # CHARGE MODEL HYPER PARAMETERS
 CHARGE_EPOCHS                = 500 # Epochs during training
@@ -66,6 +68,7 @@ ENERGY_HIDDEN_LAYERS         = [35, 35] # List of number of nodes per hidden lay
 ENERGY_HIDDEN_ACTIVATION     = ["tanh", "tanh"] # List of activation functions of hidden layers
 ENERGY_BATCH_SIZE            = 64 # Batch size during training
 ENERGY_EARLY_STOPPING        = 100 # Patience of Early Stopping. If 0, no Early Stopping
+FORCE_LOSS_FACTOR            = 200 # weight of the force loss relative to the energy loss, gets normalized
 
 # Ability to restrict the model to only use a certain GPU, which is passed with python -g gpu_id
 ap = argparse.ArgumentParser(description="Handle gpu_ids and training parameters")
@@ -99,6 +102,9 @@ if args.config_path is not None:
     ZETA_ARRAY    = config_data.get("ZETA_ARRAY", ZETA_ARRAY)
     ETA_ANG_ARRAY = config_data.get("ETA_ANG_ARRAY", ETA_ANG_ARRAY)
 
+    MAX_ELEMENTS = config_data.get("MAX_ELEMENTS", CUTOFF_ANG)
+    ELEMENTAL_MAPPING = config_data.get("ELEMENTAL_MAPPING", list(range(1, MAX_ELEMENTS+1)))
+
     CHARGE_EPOCHS                = config_data.get("CHARGE_EPOCHS", CHARGE_EPOCHS)
     CHARGE_INITIAL_LEARNING_RATE = config_data.get("CHARGE_INITIAL_LEARNING_RATE", CHARGE_INITIAL_LEARNING_RATE)
     CHARGE_FINAL_LEARNING_RATE   = config_data.get("CHARGE_FINAL_LEARNING_RATE", CHARGE_FINAL_LEARNING_RATE)
@@ -113,15 +119,15 @@ if args.config_path is not None:
     ENERGY_HIDDEN_LAYERS         = config_data.get("ENERGY_HIDDEN_LAYERS", ENERGY_HIDDEN_LAYERS)
     ENERGY_HIDDEN_ACTIVATION     = config_data.get("ENERGY_HIDDEN_ACTIVATION", ENERGY_HIDDEN_ACTIVATION)
     ENERGY_BATCH_SIZE            = config_data.get("ENERGY_BATCH_SIZE", ENERGY_BATCH_SIZE)
-    ENERGY_EARLY_STOPPING        = config_data.get("ENERGY_EARLY_STOPPING", ENERGY_EARLY_STOPPING)    
+    ENERGY_EARLY_STOPPING        = config_data.get("ENERGY_EARLY_STOPPING", ENERGY_EARLY_STOPPING)
+    FORCE_LOSS_FACTOR            = config_data.get("ENERGY_EARLY_STOPPING", FORCE_LOSS_FACTOR)
 
 file_name = f"{DATASET_NAME}.csv"
-print("Dataset:", DATA_DIRECTORY+file_name)
 data_directory = os.path.normpath(DATA_DIRECTORY)
+print("Dataset:", os.path.join(DATA_DIRECTORY, file_name))
 dataset = MemoryGraphDataset(data_directory=data_directory, dataset_name=DATASET_NAME)
 dataset.load()
 #dataset=dataset[:10]
-print(dataset[0].keys())
 
 model_config = {
     "name": "HDNNP4th",
@@ -137,10 +143,10 @@ model_config = {
                   , "elements": ELEMENTAL_MAPPING, "multiplicity": 2.0},
     "normalize_kwargs": {},
     "mlp_charge_kwargs": {"units": CHARGE_HIDDEN_LAYERS+[1],
-                          "num_relations": 30,
+                          "num_relations": MAX_ELEMENTS,
                           "activation": CHARGE_HIDDEN_ACTIVATION+["linear"]},
     "mlp_local_kwargs": {"units": ENERGY_HIDDEN_LAYERS+[1],
-                         "num_relations": 30,
+                         "num_relations": MAX_ELEMENTS,
                          "activation": ENERGY_HIDDEN_ACTIVATION+["linear"]},
     "cent_kwargs": {},
     "electrostatic_kwargs": {"name": "electrostatic_layer",
@@ -163,6 +169,7 @@ outputs = [
     {"name": "force", "shape": (None, 3), "ragged": True}
 ]
 inputs = dataset.tensor(model_config["inputs"])
+print(model_config)
 print("Amount of inputs:", len(inputs))
 for i in range(len(inputs)):
     print(f"Shape {model_config['inputs'][i]['name']}:", inputs[i].shape)
@@ -249,7 +256,7 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
         loss=["mean_squared_error", "mean_squared_error", "mean_squared_error"],
         optimizer=ks.optimizers.Adam(),
         metrics=None,
-        loss_weights=[0, 1, 199]
+        loss_weights=[0, 1/FORCE_LOSS_FACTOR, 1-1/FORCE_LOSS_FACTOR]
     )
     
     scheduler = LinearLearningRateScheduler(

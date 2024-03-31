@@ -3,6 +3,7 @@ from datetime import timedelta
 import os
 import time
 import warnings
+from scipy.spatial import distance_matrix
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 warnings.filterwarnings("ignore")
@@ -50,10 +51,10 @@ def save_poi_inputs(poi, inputs):
             np.savetxt(input_dict["name"]+".txt", numpy_array, "%3.5f")
 
 
-model_path = "../../../model_energy_force0"
+model_path = "../../../vac_model_energy_force0"
 
 #data_directory="/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_combined/"
-data_directory="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_water"
+data_directory="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_vacuum"
 dataset_name="ThiolDisulfidExchange"
 
 file_name=f"{dataset_name}.csv"
@@ -62,6 +63,7 @@ print("Dataset:", os.path.join(data_directory, file_name))
 dataset = MemoryGraphDataset(data_directory=data_directory, dataset_name=dataset_name)
 dataset.load()
 #dataset=dataset[:10]
+np.set_printoptions(precision=5)
 
 # print(dataset[0].keys())
 # poi = dataset[765]
@@ -97,23 +99,6 @@ def zero_loss_function(y_true, y_pred):
 
 model = tf.keras.models.load_model(model_path, compile=False)
 
-# Get the number of outputs from the last layer
-# results = model_energy_force.predict(X)
-# print(results)
-# [print(type(y)) for y in results.values()]
-# [print(y.shape) for y in results.values()]
-# [print(y.dtype) for y in results.values()]
-# print(type(X[0]))
-
-# predicted_y = model.predict(X)
-#true_charge = np.array(dataset[1300].get("charge"))
-#true_energy = np.array(dataset[1300].get("graph_labels"))
-#true_force = np.array(dataset[1300].get("force"))
-#print(predicted_y)
-#print(true_charge)
-#print(true_energy)
-#print(true_force)
-
 model.summary()
 
 # scaler = EnergyForceExtensiveLabelScaler()
@@ -147,30 +132,79 @@ data_point.set("graph_labels", energy)
 data_point.set("force", forces)
 dataset.append(data_point)
 
-
 test_index = [-1]
 input_tensor = dataset[test_index].tensor(inputs)
+input_geom = np.array(dataset[test_index[0]].get("node_coordinates"))
+input_distances = distance_matrix(input_geom, input_geom)
 predicted_charge, predicted_energy, predicted_force= model.predict(input_tensor, verbose=2)
 predicted_charge = np.array(predicted_charge).reshape(-1,1)
-predicted_energy = np.array(predicted_energy).reshape(-1,1)*constants.hartree_to_kcalmol
+predicted_energy = np.array(predicted_energy).reshape(-1,1)
 predicted_force = np.array(predicted_force).reshape(-1,1)
 true_charge = np.array(dataset[test_index].get("charge")).reshape(-1,1)
-true_energy = np.array(dataset[test_index].get("graph_labels")).reshape(-1,1)*constants.hartree_to_kcalmol
+true_energy = np.array(dataset[test_index].get("graph_labels")).reshape(-1,1)
 true_force = np.array(dataset[test_index].get("force")).reshape(-1,1)
 
-np.set_printoptions(precision=5)
+with open("adaptive_sampling.gro", "r") as f:
+    lines = f.readlines()
+last_comment = None
+for line in lines[::-1]:
+    if "System in water" in line:
+        last_comment = line
+        break
+if "System in water t=   0.00000 step= 0\n" == last_comment:
+    with open("starting_structure_idxs.txt", "r") as f:
+        lines = f.readlines()
+        starting_structure_idx = [int(lines[-1])]
+else:
+    starting_structure_idx = None
+
+if starting_structure_idx is not None:
+    print("-----------------Input assertion--------------------------")
+    starting_inputs = dataset[starting_structure_idx].tensor(inputs)
+    starting_geom = np.array(dataset[starting_structure_idx[0]].get("node_coordinates"))
+    starting_distances = distance_matrix(starting_geom, starting_geom)
+    true_true_charge = np.array(dataset[starting_structure_idx].get("charge"))
+    true_true_energy = np.array(dataset[starting_structure_idx].get("graph_labels"))
+    true_true_force = np.array(dataset[starting_structure_idx].get("force"))
+    for network_input_dict, starting_input, calc_input in zip(inputs, starting_inputs, input_tensor):
+        try:
+            if network_input_dict["name"] == "node_coordinates":
+                assert np.allclose(starting_distances, input_distances, atol=1e-05), f"{network_input_dict['name']} Assertion failed"
+            else:
+                assert np.allclose(starting_input.numpy(), calc_input.numpy(), atol=1e-05), f"{network_input_dict['name']} Assertion failed"
+        except AssertionError:
+            if network_input_dict["name"] == "node_coordinates":
+                print(input_distances)
+                print(starting_distances)
+            else:
+                print(calc_input)
+                print(starting_input)
+            raise
+    print("Input Assertions passed")
+print("------------------Output assertion-------------------------")
 try:
     assert np.allclose(predicted_charge, true_charge, atol=1e-05), "Charge Assertion failed"
     assert np.allclose(predicted_energy, true_energy, atol=1e-05), "Energy Assertion failed"
     assert np.allclose(predicted_force, true_force, atol=1e-05), "Force Assertion failed"
 except AssertionError:
+    print("Charge")
     print(predicted_charge.reshape(1,-1))
     print(true_charge.reshape(1,-1))
+    if starting_structure_idx is not None:
+        print(true_true_charge.reshape(1,-1))
+    print("Energy")
     print(predicted_energy)
     print(true_energy)
+    if starting_structure_idx is not None:
+        print(true_true_energy)
+    print("Force")
     print(predicted_force.reshape(1,-1,3))
     print(true_force.reshape(1,-1,3))
+    if starting_structure_idx is not None:
+        print(true_true_force)
     raise
+print("Output Assertions passed")
+exit()
 
 kf = KFold(n_splits=3, random_state=42, shuffle=True)
 

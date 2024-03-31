@@ -28,7 +28,7 @@ from kgcnn.utils.devices import set_devices_gpu
 DATA_DIRECTORY = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_water/"
 DATASET_NAME = "ThiolDisulfidExchange"
 MODEL_PREFIX = "/data/lpetersen/tests/adaptive_sampling/model_energy_force"
-EPOCHS = 100
+EPOCHS = 200
 
 # Ability to restrict the model to only use a certain GPU, which is passed with python -g gpu_id
 ap = argparse.ArgumentParser(description="Handle gpu_ids and training parameters")
@@ -111,11 +111,11 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
 
     model_energy_force = models[model_index]
     force_loss_factor = 200
-    lr_schedule = ks.optimizers.schedules.CosineDecayRestarts(initial_learning_rate=5e-6, first_decay_steps=5e3, t_mul=1.2, m_mul=0.3, alpha=1e-3)
+    lr_schedule = ks.optimizers.schedules.CosineDecayRestarts(initial_learning_rate=1e-4, first_decay_steps=5e3, t_mul=1.2, m_mul=0.3, alpha=1e-4)
     model_energy_force.compile(
         loss=["mean_squared_error", "mean_squared_error", "mean_squared_error"],
         optimizer=ks.optimizers.Adam(lr_schedule),
-        loss_weights=[0, 1, force_loss_factor],
+        loss_weights=[0, 1/force_loss_factor, 1-1/force_loss_factor],
         metrics=None
     )
 
@@ -214,3 +214,6 @@ plot_test_set_prediction(energy_df, "energy_reference", "energy_prediction",
     "Energy", r"$\frac{kcal}{mol}$", rmse_energy, r2_energy, "")
 plot_test_set_prediction(force_df, "force_reference", "force_prediction",
     "Force", r"$\frac{E_h}{B}$", rmse_force, r2_force, "")
+
+print(len(predicted_force))
+print(len(force_df))
