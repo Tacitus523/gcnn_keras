@@ -68,7 +68,7 @@ ENERGY_HIDDEN_LAYERS         = [35, 35] # List of number of nodes per hidden lay
 ENERGY_HIDDEN_ACTIVATION     = ["tanh", "tanh"] # List of activation functions of hidden layers
 ENERGY_BATCH_SIZE            = 64 # Batch size during training
 ENERGY_EARLY_STOPPING        = 100 # Patience of Early Stopping. If 0, no Early Stopping
-FORCE_LOSS_FACTOR            = 200 # weight of the force loss relative to the energy loss, gets normalized
+FORCE_LOSS_FACTOR            = 200 # Weight of the force loss relative to the energy loss, gets normalized
 
 # Ability to restrict the model to only use a certain GPU, which is passed with python -g gpu_id
 ap = argparse.ArgumentParser(description="Handle gpu_ids and training parameters")
@@ -120,7 +120,7 @@ if args.config_path is not None:
     ENERGY_HIDDEN_ACTIVATION     = config_data.get("ENERGY_HIDDEN_ACTIVATION", ENERGY_HIDDEN_ACTIVATION)
     ENERGY_BATCH_SIZE            = config_data.get("ENERGY_BATCH_SIZE", ENERGY_BATCH_SIZE)
     ENERGY_EARLY_STOPPING        = config_data.get("ENERGY_EARLY_STOPPING", ENERGY_EARLY_STOPPING)
-    FORCE_LOSS_FACTOR            = config_data.get("ENERGY_EARLY_STOPPING", FORCE_LOSS_FACTOR)
+    FORCE_LOSS_FACTOR            = config_data.get("FORCE_LOSS_FACTOR", FORCE_LOSS_FACTOR)
 
 file_name = f"{DATASET_NAME}.csv"
 data_directory = os.path.normpath(DATA_DIRECTORY)
@@ -207,24 +207,27 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
         metrics=None
     )
 
+    callbacks = []
     scheduler = LinearLearningRateScheduler(
         learning_rate_start=CHARGE_INITIAL_LEARNING_RATE,
         learning_rate_stop=CHARGE_FINAL_LEARNING_RATE,
         epo_min=0,
         epo=CHARGE_EPOCHS)
+    callbacks.append(scheduler)
 
-    earlystop = ks.callbacks.EarlyStopping(monitor="val_loss",
-        mode="min",
-        patience=CHARGE_EARLY_STOPPING,
-        verbose=0)
+    if CHARGE_EARLY_STOPPING > 0:
+        earlystop = ks.callbacks.EarlyStopping(
+            monitor="val_loss",
+            mode="min",
+            patience=CHARGE_EARLY_STOPPING,
+            verbose=0
+        )
+        callbacks.append(earlystop)
 
     start = time.process_time()
     charge_hist = model_charge.fit(
         x_train, charge_train,
-        callbacks=[
-            scheduler,
-            earlystop
-        ],
+        callbacks=callbacks,
         validation_data=(x_test, charge_test),
         epochs=CHARGE_EPOCHS,
         batch_size=CHARGE_BATCH_SIZE,
@@ -259,27 +262,39 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
         loss_weights=[0, 1/FORCE_LOSS_FACTOR, 1-1/FORCE_LOSS_FACTOR]
     )
     
+    callbacks=[]
     scheduler = LinearLearningRateScheduler(
         learning_rate_start=ENERGY_INITIAL_LEARNING_RATE,
         learning_rate_stop=ENERGY_FINAL_LEARNING_RATE,
         epo_min=0,
         epo=ENERGY_EPOCHS)
+    callbacks.append(scheduler)
 
-    earlystop = ks.callbacks.EarlyStopping(monitor="val_loss",
-        mode="min",
-        patience=ENERGY_EARLY_STOPPING,
-        verbose=0)
-    
+    if ENERGY_EARLY_STOPPING > 0:
+        earlystop = ks.callbacks.EarlyStopping(
+            monitor="val_loss",
+            mode="min",
+            patience=ENERGY_EARLY_STOPPING,
+            verbose=0
+        )
+        callbacks.append(earlystop)
+
+    if ENERGY_EARLY_STOPPING > 0:
+        earlystop = ks.callbacks.EarlyStopping(
+            monitor="val_loss",
+            mode="min",
+            patience=ENERGY_EARLY_STOPPING,
+            verbose=0
+        )
+        callbacks.append(earlystop)
+
     start = time.process_time()
     hist = model_energy_force.fit(
         x_train, energy_force_train,
-        callbacks=[
-            scheduler,
-            earlystop
-        ],
+        callbacks=callbacks,
         validation_data=(x_test, energy_force_test),
         epochs=ENERGY_EPOCHS,
-        batch_size=64,
+        batch_size=ENERGY_BATCH_SIZE,
         verbose=2
     )
     stop = time.process_time()

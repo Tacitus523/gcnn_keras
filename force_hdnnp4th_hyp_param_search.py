@@ -276,6 +276,7 @@ x_test, y_test = dataset[test_index].tensor(input_config), dataset[test_index].t
 class LearningRateLoggingCallback(tf.keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs=None):
         optimizer = self.model.optimizer
+        # In earlier tf versions lr used to be a schedule. It's fixed now though
         if isinstance(optimizer.lr, tf.keras.optimizers.schedules.LearningRateSchedule):
             current_lr = optimizer.lr(optimizer.iterations)
         else:
