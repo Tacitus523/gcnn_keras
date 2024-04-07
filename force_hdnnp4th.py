@@ -49,7 +49,7 @@ ETA_ANG_ARRAY = ETA_ARRAY # Width parameter eta in 1/Bohr^2
 
 # Assignment of parameters to elements
 MAX_ELEMENTS = 30 # Length of the array with the symmetry function parameters, the highest possible atomic number of the elements is determined by this
-ELEMENTAL_MAPPING = list(range(1, MAX_ELEMENTS+1)) # Parameters can be given individually per element. This list maps the parameters to its element
+ELEMENTAL_MAPPING = [1, 6, 7, 8] # Parameters can be given individually per element. This list maps the parameters to its element
 
 # CHARGE MODEL HYPER PARAMETERS
 CHARGE_EPOCHS                = 500 # Epochs during training
@@ -58,7 +58,7 @@ CHARGE_FINAL_LEARNING_RATE   = 1e-8 # Initial learning rate during training
 CHARGE_HIDDEN_LAYERS         = [15] # List of number of nodes per hidden layer 
 CHARGE_HIDDEN_ACTIVATION     = ["tanh"] # List of activation functions of hidden layers
 CHARGE_BATCH_SIZE            = 64 # Batch size during training
-CHARGE_EARLY_STOPPING        = 100 # Patience of Early Stopping. If 0, no Early Stopping
+CHARGE_EARLY_STOPPING        = 0 # Patience of Early Stopping. If 0, no Early Stopping, Early Stopping breaks loss history plot
 
 # ENERGY MODEL HYPER PARAMETERS
 ENERGY_EPOCHS                = 500 # Epochs during training
@@ -67,7 +67,7 @@ ENERGY_FINAL_LEARNING_RATE   = 1e-8 # Initial learning rate during training
 ENERGY_HIDDEN_LAYERS         = [35, 35] # List of number of nodes per hidden layer 
 ENERGY_HIDDEN_ACTIVATION     = ["tanh", "tanh"] # List of activation functions of hidden layers
 ENERGY_BATCH_SIZE            = 64 # Batch size during training
-ENERGY_EARLY_STOPPING        = 100 # Patience of Early Stopping. If 0, no Early Stopping
+ENERGY_EARLY_STOPPING        = 0 # Patience of Early Stopping. If 0, no Early Stopping, Early Stopping breaks loss history plot
 FORCE_LOSS_FACTOR            = 200 # Weight of the force loss relative to the energy loss, gets normalized
 
 # Ability to restrict the model to only use a certain GPU, which is passed with python -g gpu_id
@@ -302,6 +302,10 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
     hists.append(hist)
     model_energy_force.save(MODEL_PREFIX+str(model_index))
     model_index += 1
+    
+hist_dicts = [hist.history for hist in hists]
+with open(os.path.join("", "histories.json"), "w") as f:
+    json.dump(hist_dicts, f, indent=2)
 
 model_energy.summary()
 

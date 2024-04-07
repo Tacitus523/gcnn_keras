@@ -172,9 +172,10 @@ def plot_test_set_prediction(data: pd.DataFrame, observation: str, prediction: s
     plt.figure(figsize=(7,5))
     FONTSIZE  = 18
     LABELSIZE = 15
+    ALPHA = 0.3
     if "at_types" in data.columns:
         plot = sns.lmplot(y=observation, x=prediction, data=data, hue="at_types", markers=".",
-            scatter_kws={"alpha": 0.1},
+            scatter_kws={"alpha": ALPHA},
             line_kws={"linewidth": 3},
             height=6,
             legend=False)
@@ -184,7 +185,7 @@ def plot_test_set_prediction(data: pd.DataFrame, observation: str, prediction: s
             legend_handle.set_alpha(1)
     else:
         plot = sns.lmplot(y=observation, x=prediction, data=data, markers=".",
-            scatter_kws={"alpha": 0.1},
+            scatter_kws={"alpha": ALPHA},
             line_kws={"linewidth": 1},
             height=6)
     plt.xlabel(f"Prediction {title} [{unit}]", fontsize=FONTSIZE)
