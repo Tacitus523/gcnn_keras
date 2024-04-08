@@ -125,7 +125,7 @@ for i in range(len(inputs)):
 kf = KFold(n_splits=3, random_state=42, shuffle=True)
 hists = []
 model_index = 0
-for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("graph_labels")), axis=-1)):
+for test_index, train_index in kf.split(X=np.expand_dims(np.array(dataset.get("graph_labels")), axis=-1)): # Switched train and test indices to keep training data separate
     x_train = dataset[train_index].tensor(model_config["inputs"])
     x_test = dataset[test_index].tensor(model_config["inputs"])
     energy_force_train = dataset[train_index].tensor(outputs)
