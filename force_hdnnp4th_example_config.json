@@ -1,0 +1,74 @@
+{
+  "DATA_DIRECTORY": "/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_water",
+  "DATASET_NAME": "ThiolDisulfidExchange",
+  "MODEL_PREFIX": "model_energy_force",
+  "CUTOFF_RAD": 20,
+  "RS_ARRAY": [
+    0.0,
+    3.0,
+    4.0,
+    5.0,
+    6.0,
+    7.0,
+    8.0
+  ],
+  "ETA_ARRAY": [
+    0.0,
+    0.03,
+    0.08,
+    0.16,
+    0.3,
+    0.5
+  ],
+  "CUTOFF_ANG": 12,
+  "LAMBD_ARRAY": [
+    -1,
+    1
+  ],
+  "ZETA_ARRAY": [
+    1,
+    2,
+    4,
+    8,
+    16
+  ],
+  "ETA_ANG_ARRAY": [
+    0.0,
+    0.03,
+    0.08,
+    0.16,
+    0.3,
+    0.5
+  ],
+  "MAX_ELEMENTS": 30,
+  "ELEMENTAL_MAPPING": [
+    1,
+    6,
+    16
+  ],
+  "CHARGE_EPOCHS": 500,
+  "CHARGE_INITIAL_LEARNING_RATE": 0.001,
+  "CHARGE_FINAL_LEARNING_RATE": 1e-08,
+  "CHARGE_HIDDEN_LAYERS": [
+    15
+  ],
+  "CHARGE_HIDDEN_ACTIVATION": [
+    "tanh"
+  ],
+  "CHARGE_BATCH_SIZE": 64,
+  "CHARGE_EARLY_STOPPING": 0,
+  "ENERGY_EPOCHS": 500,
+  "ENERGY_INITIAL_LEARNING_RATE": 0.001,
+  "ENERGY_FINAL_LEARNING_RATE": 1e-08,
+  "ENERGY_HIDDEN_LAYERS": [
+    35,
+    35
+  ],
+  "ENERGY_HIDDEN_ACTIVATION": [
+    "tanh",
+    "tanh"
+  ],
+  "ENERGY_BATCH_SIZE": 64,
+  "ENERGY_EARLY_STOPPING": 0,
+  "FORCE_LOSS_FACTOR": 200
+}
