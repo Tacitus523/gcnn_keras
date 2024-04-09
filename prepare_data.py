@@ -18,6 +18,7 @@ ESP_FILE = "esps_by_mm.txt" # path to esp caused by mm atoms, one line per molec
 ESP_GRAD_FILE = "esp_gradients.txt" # path to the ESP gradients, "" if not available, in Eh/Bohr^2, I hope
 AT_COUNT = 15 # atom count, used if no charges supplied
 CUTOFF = 10.0 # Max distance for bonds and angles to be considered relevant, None if not available, in Angstrom, default 10, CONSIDER CUTOFF IN YOUR SYMMETRY FUNCTIONS
+MAX_NEIGHBORS = 25 # Maximal neighbors per atom to be considered relevant, disregards neighbors within cutoff distance if too small
 FORCE_FILE = "forces.xyz" # path to force-file, "" if not available, in Eh/Bohr, apparently given like that from Orca
 TOTAL_CHARGE = -1 # total charge of molecule, None if not available, different charges not supported
 PREFIX = "ThiolDisulfidExchange" # prefix to generated files, compulsary for kgcnn read-in
@@ -47,6 +48,7 @@ if config_path is not None:
     ESP_GRAD_FILE = config_data.get("ESP_GRAD_FILE", ESP_GRAD_FILE)
     AT_COUNT = int(config_data.get("AT_COUNT", AT_COUNT))
     CUTOFF = float(config_data.get("CUTOFF", CUTOFF))
+    MAX_NEIGHBORS = int(config_data.get("MAX_NEIGHBORS", MAX_NEIGHBORS))
     FORCE_FILE = config_data.get("FORCE_FILE", FORCE_FILE)
     TOTAL_CHARGE = int(config_data.get("TOTAL_CHARGE", TOTAL_CHARGE))
     PREFIX = config_data.get("PREFIX", PREFIX)
@@ -57,6 +59,7 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
 from kgcnn.data.base import MemoryGraphDataset
 from kgcnn.data.qm import QMDataset
+from kgcnn.utils import constants
 
 def copy_data(geometry_path: str, charge_path: str, esp_path: str, esp_grad_path: str, force_path: str, prefix: str, target_path: str) -> None:
     target_geometry_path = join(target_path, f"{prefix}.xyz")
@@ -97,13 +100,12 @@ def prepare_kgcnn_dataset(data_directory: str, dataset_name: str, cutoff: float)
     dataset.prepare_data(overwrite=True, make_sdf = True)
     dataset.read_in_memory(label_column_name="energy", additional_callbacks = {'total_charge': lambda mg, dd: dd['total_charge']})
     
-    dataset.map_list(method="set_range", max_distance=cutoff+1.0)
-    dataset.map_list(method="set_angle")
-    
-    # Distancs in a.u.
-    angstrom_to_bohr = 1.8897259886
+    # Coordinates in a.u.
     for i in range(len(dataset)):
-        dataset[i]["node_coordinates"] *= angstrom_to_bohr
+        dataset[i]["node_coordinates"] *= constants.angstrom_to_bohr
+
+    dataset.map_list(method="set_range", max_distance=(cutoff+1.0)*constants.angstrom_to_bohr, max_neighbours=MAX_NEIGHBORS)
+    dataset.map_list(method="set_angle")
     
     charge_path = os.path.join(os.path.normpath(os.path.dirname(dataset.file_path)), "charges.txt")
     try:
