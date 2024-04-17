@@ -2,6 +2,7 @@ import argparse
 from datetime import timedelta
 import json
 import os
+import pickle
 import time
 import warnings
 
@@ -21,7 +22,7 @@ from kgcnn.data.base import MemoryGraphList, MemoryGraphDataset
 from kgcnn.data.transform.scaler.force import EnergyForceExtensiveLabelScaler
 from kgcnn.model.force import EnergyForceModel
 from kgcnn.training.scheduler import LinearLearningRateScheduler
-from kgcnn.utils import constants
+from kgcnn.utils import constants, save_load_utils
 from kgcnn.utils.plots import plot_predict_true, plot_train_test_loss, plot_test_set_prediction
 from kgcnn.utils.devices import set_devices_gpu
 
@@ -78,10 +79,7 @@ outputs = [
 class LearningRateLoggingCallback(tf.keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs=None):
         optimizer = self.model.optimizer
-        if isinstance(optimizer.lr, tf.keras.optimizers.schedules.LearningRateSchedule):
-            current_lr = optimizer.lr(optimizer.iterations)
-        else:
-            current_lr = optimizer.lr
+        current_lr = optimizer.lr.numpy()
         if logs is not None:
             logs["lr"] = current_lr
 
@@ -100,10 +98,23 @@ def zero_loss_function(y_true, y_pred):
 models = [tf.keras.models.load_model(model_path, custom_objects={'zero_loss_function': zero_loss_function}, compile=False)
             for model_path in model_paths]
 
+previous_train_indices, previous_test_indices = save_load_utils.load_training_indices("training_indices.pkl", len(models))
+max_previous_index = np.max(np.concatenate([np.concatenate(previous_train_indices), np.concatenate(previous_test_indices)]))
+
 kf = KFold(n_splits=len(models), shuffle=True)
 hists = []
+train_indices = []
+test_indices = []
 model_index = 0
-for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("graph_labels")), axis=-1)):
+for current_test_index, current_train_index in kf.split(X=np.expand_dims(np.array(dataset.get("graph_labels")), axis=-1)): # Switched train and test indices to keep training data separate
+    # Combine new and old training indices
+    previous_train_index = previous_train_indices[model_index]
+    previous_test_index = previous_test_indices[model_index]
+    relevant_current_train_index = current_train_index[current_train_index>max_previous_index]
+    relevant_current_test_index = current_test_index[current_test_index>max_previous_index]
+    train_index = np.concatenate([previous_train_index, relevant_current_train_index])
+    test_index = np.concatenate([previous_test_index, relevant_current_test_index])
+
     x_train = dataset[train_index].tensor(inputs)
     x_test = dataset[test_index].tensor(inputs)
     energy_force_train = dataset[train_index].tensor(outputs)
@@ -111,7 +122,7 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
 
     model_energy_force = models[model_index]
     force_loss_factor = 200
-    lr_schedule = ks.optimizers.schedules.CosineDecayRestarts(initial_learning_rate=1e-4, first_decay_steps=5e3, t_mul=1.2, m_mul=0.3, alpha=1e-4)
+    lr_schedule = ks.optimizers.schedules.CosineDecayRestarts(initial_learning_rate=1e-4, first_decay_steps=1e3, t_mul=1.2, m_mul=0.3, alpha=1e-4)
     model_energy_force.compile(
         loss=["mean_squared_error", "mean_squared_error", "mean_squared_error"],
         optimizer=ks.optimizers.Adam(lr_schedule),
@@ -128,14 +139,19 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
         ],
         validation_data=(x_test, energy_force_test),
         epochs=EPOCHS,
-        batch_size=64,
+        batch_size=256,
         verbose=2
     )
     stop = time.process_time()
     print("Print Time for training: ", str(timedelta(seconds=stop - start)))
     hists.append(hist)
+    train_indices.append(train_index)
+    test_indices.append(test_index)
     model_energy_force.save(model_paths[model_index])
     model_index += 1
+
+save_load_utils.save_history(hists)
+save_load_utils.save_training_indices(train_indices, test_indices)
 
 true_charge = np.array(dataset[test_index].get("charge")).reshape(-1,1)
 true_energy = np.array(dataset[test_index].get("graph_labels")).reshape(-1,1)*constants.hartree_to_kcalmol
@@ -146,10 +162,10 @@ predicted_charge = np.array(predicted_charge).reshape(-1,1)
 predicted_energy = np.array(predicted_energy).reshape(-1,1)*constants.hartree_to_kcalmol
 predicted_force = np.array(predicted_force).reshape(-1,1)
 
-# plot_predict_true(predicted_charge, true_charge,
-#     filepath="", data_unit="e",
-#     model_name="HDNNP", dataset_name=DATASET_NAME, target_names="Charge",
-#     error="RMSE", file_name=f"predict_charge.png", show_fig=False)
+plot_predict_true(predicted_charge, true_charge,
+    filepath="", data_unit="e",
+    model_name="HDNNP", dataset_name=DATASET_NAME, target_names="Charge",
+    error="RMSE", file_name=f"predict_charge.png", show_fig=False)
 
 plot_predict_true(predicted_energy, true_energy,
     filepath="", data_unit=r"$\frac{kcal}{mol}$",
@@ -166,12 +182,14 @@ plot_predict_true(predicted_force, true_force,
 #     model_name="HDNNP", dataset_name=DATASET_NAME, file_name="charge_loss.png", show_fig=False)
 
 plot_train_test_loss(hists,
+    loss_name = ["loss", "output_2_loss", "output_3_loss", "lr"],
+    val_loss_name = ["val_loss", "val_output_2_loss", "val_output_3_loss"],
     filepath="", data_unit="Eh",
     model_name="HDNNP", dataset_name=DATASET_NAME, file_name="loss.png", show_fig=False)
 
-# rmse_charge = mean_squared_error(true_charge, predicted_charge, squared=False)
-# mae_charge  = mean_absolute_error(true_charge, predicted_charge)
-# r2_charge   = r2_score(true_charge, predicted_charge)
+rmse_charge = mean_squared_error(true_charge, predicted_charge, squared=False)
+mae_charge  = mean_absolute_error(true_charge, predicted_charge)
+r2_charge   = r2_score(true_charge, predicted_charge)
 
 rmse_energy = mean_squared_error(true_energy, predicted_energy, squared=False)
 mae_energy  = mean_absolute_error(true_energy, predicted_energy)
@@ -182,9 +200,9 @@ mae_force  = mean_absolute_error(true_force, predicted_force)
 r2_force   = r2_score(true_force, predicted_force)
 
 error_dict = {
-    # "RMSE Charge": f"{rmse_charge:.3f}",
-    # "MAE Charge": f"{mae_charge:.3f}",
-    # "R2 Charge": f"{r2_charge:.2f}",
+    "RMSE Charge": f"{rmse_charge:.3f}",
+    "MAE Charge": f"{mae_charge:.3f}",
+    "R2 Charge": f"{r2_charge:.2f}",
     "RMSE Energy": f"{rmse_energy:.1f}",
     "MAE Energy": f"{mae_energy:.1f}",
     "R2 Energy": f"{r2_energy:.2f}",
@@ -199,21 +217,18 @@ for key, value in error_dict.items():
 with open(os.path.join("", "errors.json"), "w") as f:
     json.dump(error_dict, f, indent=2, sort_keys=True)
 
-# charge_df = pd.DataFrame({"charge_reference": true_charge.flatten(), "charge_prediction": predicted_charge.flatten()})
+charge_df = pd.DataFrame({"charge_reference": true_charge.flatten(), "charge_prediction": predicted_charge.flatten()})
 energy_df = pd.DataFrame({"energy_reference": true_energy.flatten(), "energy_prediction": predicted_energy.flatten()})
 force_df = pd.DataFrame({"force_reference": true_force.flatten(), "force_prediction": predicted_force.flatten()})
 
 atomic_numbers = np.array(dataset[test_index].get("node_number")).flatten()
 at_types_column = pd.Series(atomic_numbers, name="at_types").replace(constants.atomic_number_to_element)
-# charge_df["at_types"] = at_types_column
+charge_df["at_types"] = at_types_column
 force_df["at_types"] =  at_types_column
 
-# plot_test_set_prediction(charge_df, "charge_reference", "charge_prediction",
-#     "Charge", "e", rmse_charge, r2_charge, "")
+plot_test_set_prediction(charge_df, "charge_reference", "charge_prediction",
+    "Charge", "e", rmse_charge, r2_charge, "")
 plot_test_set_prediction(energy_df, "energy_reference", "energy_prediction",
     "Energy", r"$\frac{kcal}{mol}$", rmse_energy, r2_energy, "")
 plot_test_set_prediction(force_df, "force_reference", "force_prediction",
     "Force", r"$\frac{E_h}{B}$", rmse_force, r2_force, "")
-
-print(len(predicted_force))
-print(len(force_df))

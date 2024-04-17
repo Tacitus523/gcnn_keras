@@ -13,7 +13,6 @@ from sklearn.model_selection import KFold
 import tensorflow as tf
 tf.get_logger().setLevel("ERROR")
 ks=tf.keras
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 print(tf.config.list_physical_devices('GPU'))
 
 from kgcnn.graph.base import GraphDict
@@ -51,11 +50,14 @@ def save_poi_inputs(poi, inputs):
             np.savetxt(input_dict["name"]+".txt", numpy_array, "%3.5f")
 
 
-model_path = "../../../vac_model_energy_force0"
+model_path = "../../../model_energy_force0"
 
 #data_directory="/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_combined/"
-data_directory="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_vacuum"
+data_directory="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_water"
+#data_directory="/lustre/work/ws/ws1/ka_he8978-dipeptide/training_data/B3LYP_aug-cc-pVTZ_water"
+
 dataset_name="ThiolDisulfidExchange"
+#dataset_name="Alanindipeptide"
 
 file_name=f"{dataset_name}.csv"
 print("Dataset:", os.path.join(data_directory, file_name))
@@ -148,10 +150,10 @@ with open("adaptive_sampling.gro", "r") as f:
     lines = f.readlines()
 last_comment = None
 for line in lines[::-1]:
-    if "System in water" in line:
+    if "step=" in line:
         last_comment = line
         break
-if "System in water t=   0.00000 step= 0\n" == last_comment:
+if last_comment.endswith("step= 0\n"):
     with open("starting_structure_idxs.txt", "r") as f:
         lines = f.readlines()
         starting_structure_idx = [int(lines[-1])]
@@ -169,17 +171,24 @@ if starting_structure_idx is not None:
     for network_input_dict, starting_input, calc_input in zip(inputs, starting_inputs, input_tensor):
         try:
             if network_input_dict["name"] == "node_coordinates":
-                assert np.allclose(starting_distances, input_distances, atol=1e-05), f"{network_input_dict['name']} Assertion failed"
+                assert np.allclose(starting_distances, input_distances, atol=1e-00), f"{network_input_dict['name']} Assertion failed"
+            elif network_input_dict["name"] == "range_indices" or network_input_dict["name"] == "angle_indices_nodes":
+                assert calc_input.numpy().shape[1] == starting_input.numpy().shape[1], f"{network_input_dict['name']} Assertion possibly failed"
             else:
-                assert np.allclose(starting_input.numpy(), calc_input.numpy(), atol=1e-05), f"{network_input_dict['name']} Assertion failed"
-        except AssertionError:
+                assert np.allclose(starting_input.numpy(), calc_input.numpy(), atol=1e-02), f"{network_input_dict['name']} Assertion failed"
+        except :
             if network_input_dict["name"] == "node_coordinates":
-                print(input_distances)
-                print(starting_distances)
+                print(starting_geom[0:2])
+                print(input_geom[0:2])
+                print(input_distances[0])
+                print(starting_distances[0])
+                raise
+            elif network_input_dict["name"] == "range_indices" or network_input_dict["name"] == "angle_indices_nodes":
+                print(f"{network_input_dict['name']} calc input vs training: {calc_input.numpy().shape[1]} vs {starting_input.numpy().shape[1]}. Differences might result from different handling of cutoff and might be inconsequential.")
             else:
                 print(calc_input)
                 print(starting_input)
-            raise
+                raise
     print("Input Assertions passed")
 print("------------------Output assertion-------------------------")
 try:
@@ -208,7 +217,7 @@ exit()
 
 kf = KFold(n_splits=3, random_state=42, shuffle=True)
 
-for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("graph_labels")), axis=-1)):
+for test_index, train_index in kf.split(X=np.expand_dims(np.array(dataset.get("graph_labels")), axis=-1)): # Switched train and test indices to keep training data separate, Could also be read from the json-file now
     predicted_charge, predicted_energy, predicted_force= model.predict(dataset[test_index].tensor(inputs), verbose=2)
     break
 

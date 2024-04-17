@@ -30,7 +30,7 @@ def plot_train_test_loss(histories: list, loss_name: str = None,
     Returns:
         matplotlib.pyplot.figure: Figure of the training curves.
     """
-    X_MIN = 5
+    X_MIN = 0
     histories = [hist.history if isinstance(hist, tf.keras.callbacks.History) else hist for hist in histories]
     # We assume multiple fits as in KFold.
     if data_unit is None:

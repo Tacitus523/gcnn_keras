@@ -2,6 +2,7 @@ import argparse
 from datetime import timedelta
 import json
 import os
+import pickle
 import time
 import warnings
 
@@ -25,7 +26,7 @@ from kgcnn.literature.HDNNP4th import make_model_behler_charge_separat as make_m
 from kgcnn.data.transform.scaler.force import EnergyForceExtensiveLabelScaler
 from kgcnn.utils.plots import plot_predict_true, plot_train_test_loss, plot_test_set_prediction
 from kgcnn.utils.devices import set_devices_gpu
-from kgcnn.utils import constants
+from kgcnn.utils import constants, save_load_utils
 from kgcnn.model.force import EnergyForceModel
 from kgcnn.metrics.loss import RaggedMeanAbsoluteError
 
@@ -57,7 +58,7 @@ CHARGE_INITIAL_LEARNING_RATE = 1e-3 # Initial learning rate during training
 CHARGE_FINAL_LEARNING_RATE   = 1e-8 # Initial learning rate during training
 CHARGE_HIDDEN_LAYERS         = [15] # List of number of nodes per hidden layer 
 CHARGE_HIDDEN_ACTIVATION     = ["tanh"] # List of activation functions of hidden layers
-CHARGE_BATCH_SIZE            = 64 # Batch size during training
+CHARGE_BATCH_SIZE            = 128 # Batch size during training
 CHARGE_EARLY_STOPPING        = 0 # Patience of Early Stopping. If 0, no Early Stopping, Early Stopping breaks loss history plot
 
 # ENERGY MODEL HYPER PARAMETERS
@@ -66,7 +67,7 @@ ENERGY_INITIAL_LEARNING_RATE = 1e-3 # Initial learning rate during training
 ENERGY_FINAL_LEARNING_RATE   = 1e-8 # Initial learning rate during training
 ENERGY_HIDDEN_LAYERS         = [35, 35] # List of number of nodes per hidden layer 
 ENERGY_HIDDEN_ACTIVATION     = ["tanh", "tanh"] # List of activation functions of hidden layers
-ENERGY_BATCH_SIZE            = 64 # Batch size during training
+ENERGY_BATCH_SIZE            = 128 # Batch size during training
 ENERGY_EARLY_STOPPING        = 0 # Patience of Early Stopping. If 0, no Early Stopping, Early Stopping breaks loss history plot
 FORCE_LOSS_FACTOR            = 200 # Weight of the force loss relative to the energy loss, gets normalized
 
@@ -184,11 +185,14 @@ for i in range(len(inputs)):
 def zero_loss_function(y_true, y_pred):
     return 0
 
-kf = KFold(n_splits=3, random_state=42, shuffle=True)
+N_SPLITS = 3 # Used to determine amount of splits in training
+kf = KFold(n_splits=N_SPLITS, random_state=42, shuffle=True)
 charge_hists = []
 hists = []
+train_indices = []
+test_indices = []
 model_index = 0
-for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("graph_labels")), axis=-1)):
+for test_index, train_index in kf.split(X=np.expand_dims(np.array(dataset.get("graph_labels")), axis=-1)): # Switched train and test indices to keep training data separate
     x_train = dataset[train_index].tensor(model_config["inputs"])
     x_test = dataset[test_index].tensor(model_config["inputs"])
     charge_train = dataset[train_index].tensor(charge_output)
@@ -279,15 +283,6 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
         )
         callbacks.append(earlystop)
 
-    if ENERGY_EARLY_STOPPING > 0:
-        earlystop = ks.callbacks.EarlyStopping(
-            monitor="val_loss",
-            mode="min",
-            patience=ENERGY_EARLY_STOPPING,
-            verbose=0
-        )
-        callbacks.append(earlystop)
-
     start = time.process_time()
     hist = model_energy_force.fit(
         x_train, energy_force_train,
@@ -300,12 +295,13 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
     stop = time.process_time()
     print("Print Time for training: ", str(timedelta(seconds=stop - start)))
     hists.append(hist)
+    train_indices.append(train_index)
+    test_indices.append(test_index)
     model_energy_force.save(MODEL_PREFIX+str(model_index))
     model_index += 1
-    
-hist_dicts = [hist.history for hist in hists]
-with open(os.path.join("", "histories.json"), "w") as f:
-    json.dump(hist_dicts, f, indent=2)
+
+save_load_utils.save_history(hists)
+save_load_utils.save_training_indices(train_indices, test_indices)
 
 model_energy.summary()
 

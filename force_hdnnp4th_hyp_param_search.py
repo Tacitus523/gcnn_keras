@@ -35,11 +35,9 @@ from kgcnn.metrics.loss import RaggedMeanAbsoluteError
 from kgcnn.utils.data_splitter import idx_generator
 
 data_directory="/lustre/work/ws/ws1/ka_he8978-dipeptide/training_data/B3LYP_aug-cc-pVTZ_water"
-
 dataset_name="Alanindipeptide"
 
-file_name=f"{dataset_name}.csv"
-print("Dataset:", os.path.join(data_directory, file_name))
+trial_folder_name = "trials"
 
 # Ability to restrict the model to only use a certain GPU, which is passed with python -g gpu_id
 ap = argparse.ArgumentParser(description="Handle gpu_ids")
@@ -51,7 +49,10 @@ if args.gpuid is not None:
 data_directory = os.path.join(os.path.dirname(__file__), os.path.normpath(data_directory))
 dataset = MemoryGraphDataset(data_directory=data_directory, dataset_name=dataset_name)
 dataset.load()
-#dataset = dataset[:10]
+# dataset = dataset[::3]
+
+file_name=f"{dataset_name}.csv"
+print("Dataset:", os.path.join(data_directory, file_name))
 print(dataset[0].keys())
 
 input_config = [{"shape": (None,), "name": "node_number", "dtype": "int64", "ragged": True},
@@ -103,66 +104,68 @@ class MyHyperModel(kt.HyperModel):
         ks.backend.clear_session() # RAM is apparently not released between trials. This should clear some of it, but probably not all. https://github.com/keras-team/keras-tuner/issues/395
 
         # Radial parameters
-        cutoff_rad = hp.Float("cutoff_rad", 8, 30, 8)
+        # cutoff_rad = hp.Float("cutoff_rad", 8, 30, 8) # in Bohr
+        cutoff_rad = 20 # in Bohr
         Rs_array_choice = hp.Choice("Rs_array", [
-            #"0.0 4.0 6.0 8.0",
-            #"0.0 3.0 5.0 7.0 9.0",
+            # "0.0 4.0 6.0 8.0",
+            # "0.0 3.0 5.0 7.0 9.0",
             "0.0 3.0 4.0 5.0 6.0 7.0 8.0",
-            "0.0 4.0 6.0 8.0 10.0 12.0 16.0",
+            #"0.0 4.0 6.0 8.0 10.0 12.0 16.0",
             #"0.0 3.0 4.0 5.0 6.0 7.0 8.0 9.0 10.0 11.0 12.0"
         ])
         Rs_array = [float(x) for x in Rs_array_choice.split()]
         eta_array_choice  = hp.Choice("eta_array", [
-            #"0.0 0.08 0.3",
-            #"0.03 0.16 0.5",
+            # "0.0 0.08 0.3",
+            # "0.03 0.16 0.5",
             "0.0 0.03 0.08 0.16 0.3 0.5",
-            "0.0 0.06 0.16 0.32 0.6 0.8 1.0",
+            #"0.0 0.06 0.16 0.32 0.6 0.8 1.0",
             #"0.0 0.03 0.08 0.16 0.3 0.5 0.6 0.75 0.9 1.0"
         ])
         eta_array = [float(x) for x in eta_array_choice.split()]
         # Angular parameters
-        cutoff_ang = hp.Float("cutoff_ang", 8, 30, 8)
+        # cutoff_ang = hp.Float("cutoff_ang", 8, 30, 8) # in Bohr
+        cutoff_ang = 20 # in Bohr
         lambd_array_choice = hp.Choice("lamb_array", [
             "-1 1",
-            "-1 0 1", 
-            "-1 -0.5 0 0.5 1"
+            #"-1 0 1", 
+            #"-1 -0.5 0 0.5 1"
         ])
         lambd_array = [float(x) for x in lambd_array_choice.split()]
         zeta_array_choice = hp.Choice("zeta_array", [
             #"2 8 16",
-            "1 4 8 16",
+            #"1 4 8 16",
             "1 2 4 8 16",
             #"1 2 4 8 16 32"
         ])
         zeta_array = [float(x) for x in zeta_array_choice.split()]
         eta_ang_array = eta_array
 
-        charge_n_layers = hp.Int("charge_n_layers", 1, 2, 1)
+        charge_n_layers = hp.Int("charge_n_layers", 1, 1, 1)
         charge_layers = []
-        charge_max_neurons = 151
+        charge_max_neurons = 16
         for i in range(charge_n_layers):
-            charge_neurons = hp.Int(f"charge_neurons_{i}", 25, charge_max_neurons, 25)
+            charge_neurons = hp.Int(f"charge_neurons_{i}", 15, charge_max_neurons, 15)
             charge_max_neurons = charge_neurons+1
             charge_layers.append(charge_neurons)
         charge_layers.append(1)
 
-        charge_activation = hp.Choice("charge_activation", ["relu", "tanh", "elu", "selu", "swish", "leaky_relu"])
+        charge_activation = hp.Choice("charge_activation", ["relu", "tanh"])
         charge_activations = [lambda x: custom_activation(x, charge_activation)]*charge_n_layers + ["linear"]
 
-        energy_n_layers = hp.Int("energy_n_layers", 1, 3, 1)
+        energy_n_layers = hp.Int("energy_n_layers", 2, 2, 1)
         energy_layers = []
-        energy_max_neurons = 251
+        energy_max_neurons = 36
         for i in range(energy_n_layers):
-            energy_neurons = hp.Int(f"energy_neurons_{i}", 25, energy_max_neurons, 25)
+            energy_neurons = hp.Int(f"energy_neurons_{i}", 35, energy_max_neurons, 25)
             energy_max_neurons = energy_neurons+1
             energy_layers.append(energy_neurons)
         energy_layers.append(1)
 
-        energy_activation = hp.Choice("energy_activation", ["relu", "tanh", "elu", "selu", "swish", "leaky_relu"])
+        energy_activation = hp.Choice("energy_activation", ["relu", "tanh"])
         energy_activations = [lambda x: custom_activation(x, energy_activation)]*energy_n_layers + ["linear"]
 
         max_elements = 30
-        elemental_mapping = list(range(1, max_elements+1))
+        elemental_mapping = [1, 6, 7, 8]
         model_config = {
             "name": "HDNNP4th",
             "inputs": input_config,
@@ -276,11 +279,7 @@ x_test, y_test = dataset[test_index].tensor(input_config), dataset[test_index].t
 class LearningRateLoggingCallback(tf.keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs=None):
         optimizer = self.model.optimizer
-        # In earlier tf versions lr used to be a schedule. It's fixed now though
-        if isinstance(optimizer.lr, tf.keras.optimizers.schedules.LearningRateSchedule):
-            current_lr = optimizer.lr(optimizer.iterations)
-        else:
-            current_lr = optimizer.lr
+        current_lr = optimizer.lr.numpy()
         if logs is not None:
             logs["lr"] = current_lr
 
@@ -295,7 +294,7 @@ lrlog = LearningRateLoggingCallback()
 callbacks = [earlystop, lrlog]
 my_hyper_model = MyHyperModel()
 tuner = kt.Hyperband(my_hyper_model, objective=kt.Objective("val_loss", direction="min"),
-                     max_epochs=max_epochs, factor=hp_factor, hyperband_iterations=hyperband_iterations, directory="trials", 
+                     max_epochs=max_epochs, factor=hp_factor, hyperband_iterations=hyperband_iterations, directory=trial_folder_name, 
                      max_consecutive_failed_trials=1)
 tuner.search_space_summary()
 tuner.search(x_train, y_train, batch_size=batch_size, epochs=max_epochs, callbacks=callbacks, verbose=2, validation_data=[x_val, y_val])
