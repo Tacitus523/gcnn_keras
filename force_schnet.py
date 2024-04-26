@@ -249,7 +249,7 @@ force_df = pd.DataFrame({"force_reference": true_force.flatten(), "force_predict
 
 atomic_numbers = np.array(dataset[test_index].get("node_number")).flatten()
 at_types_column = pd.Series(atomic_numbers, name="at_types").replace(constants.atomic_number_to_element)
-force_df["at_types"] =  at_types_column
+force_df["at_types"] = at_types_column.repeat(3).reset_index(drop=True)
 
 plot_test_set_prediction(energy_df, "energy_reference", "energy_prediction",
     "Energy", r"$\frac{kcal}{mol}$", rmse_energy, r2_energy, "")

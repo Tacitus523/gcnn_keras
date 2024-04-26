@@ -337,7 +337,7 @@ best_model_force.save("chosen_force_model")
 true_charge = np.array(dataset[test_index].get("charge")).reshape(-1,1)
 true_energy = np.array(dataset[test_index].get("graph_labels")).reshape(-1,1)*constants.hartree_to_kcalmol
 true_force = np.array(dataset[test_index].get("force")).reshape(-1,1)
-predicted_charge, predicted_energy, predicted_force = best_model_force.predict(x_test, verbose=0)
+predicted_charge, predicted_energy, predicted_force = best_model_force.predict(x_test, batch_size=batch_size, verbose=0)
 
 # predicted_energy, predicted_force = scaler.inverse_transform(
 #    y=(predicted_energy.flatten(), predicted_force), X=dataset[test_index].get("node_number"))
@@ -405,7 +405,7 @@ force_df = pd.DataFrame({"force_reference": true_force.flatten(), "force_predict
 atomic_numbers = np.array(dataset[test_index].get("node_number")).flatten()
 at_types_column = pd.Series(atomic_numbers, name="at_types").replace(constants.atomic_number_to_element)
 charge_df["at_types"] = at_types_column
-force_df["at_types"] =  at_types_column
+force_df["at_types"] = at_types_column.repeat(3).reset_index(drop=True)
 
 plot_test_set_prediction(charge_df, "charge_reference", "charge_prediction",
     "Charge", "e", rmse_charge, r2_charge, "")

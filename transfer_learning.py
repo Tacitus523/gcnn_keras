@@ -139,7 +139,7 @@ for current_test_index, current_train_index in kf.split(X=np.expand_dims(np.arra
         ],
         validation_data=(x_test, energy_force_test),
         epochs=EPOCHS,
-        batch_size=256,
+        batch_size=128,
         verbose=2
     )
     stop = time.process_time()
@@ -224,7 +224,7 @@ force_df = pd.DataFrame({"force_reference": true_force.flatten(), "force_predict
 atomic_numbers = np.array(dataset[test_index].get("node_number")).flatten()
 at_types_column = pd.Series(atomic_numbers, name="at_types").replace(constants.atomic_number_to_element)
 charge_df["at_types"] = at_types_column
-force_df["at_types"] =  at_types_column
+force_df["at_types"] = at_types_column.repeat(3).reset_index(drop=True)
 
 plot_test_set_prediction(charge_df, "charge_reference", "charge_prediction",
     "Charge", "e", rmse_charge, r2_charge, "")
