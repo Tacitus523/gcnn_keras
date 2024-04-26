@@ -22,9 +22,9 @@ from kgcnn.model.force import EnergyForceModel
 from kgcnn.utils.plots import plot_predict_true
 from kgcnn.utils import constants
 
-def save_poi_inputs(poi, inputs):
+def save_poi_inputs(poi, input_configs):
     # Saves inputs as .txt
-    for x, input_dict in zip(poi,inputs):
+    for x, input_config in zip(poi,input_configs):
         if isinstance(x, tf.RaggedTensor):
             # Convert the RaggedTensor to a regular tensor
             regular_tensor = x.to_tensor()
@@ -35,25 +35,26 @@ def save_poi_inputs(poi, inputs):
             if numpy_array.ndim > 2:
                 numpy_array = numpy_array.reshape(-1, numpy_array.shape[-1])
 
-            if input_dict["name"] in ["edge_indices", "range_indices", "angle_indices_nodes"]:
+            if input_config["name"] in ["edge_indices", "range_indices", "angle_indices_nodes"]:
                 numpy_array = np.array(numpy_array, dtype=np.int32)
-                np.savetxt(input_dict["name"]+".txt", numpy_array, fmt='%d')
+                np.savetxt(input_config["name"]+".txt", numpy_array, fmt='%d')
 
             # Write the NumPy array to a file using numpy.savetxt()
             else:
-                np.savetxt(input_dict["name"]+".txt", numpy_array, "%3.5f")
+                np.savetxt(input_config["name"]+".txt", numpy_array, "%3.5f")
         else:
             print(x)
             numpy_array = x.numpy()
             if numpy_array.ndim > 2:
                 numpy_array = numpy_array.reshape(-1, numpy_array.shape[-1])
-            np.savetxt(input_dict["name"]+".txt", numpy_array, "%3.5f")
+            np.savetxt(input_config["name"]+".txt", numpy_array, "%3.5f")
 
 
-model_path = "../../../model_energy_force0"
+model_paths = ["../../../model_energy_force0", "../../../model_energy_force1", "../../../model_energy_force2"]
 
 #data_directory="/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_combined/"
-data_directory="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_water"
+#data_directory="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_water"
+data_directory="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_vacuum"
 #data_directory="/lustre/work/ws/ws1/ka_he8978-dipeptide/training_data/B3LYP_aug-cc-pVTZ_water"
 
 dataset_name="ThiolDisulfidExchange"
@@ -76,7 +77,7 @@ np.set_printoptions(precision=5)
 # print(poi["esp_grad"])
 # exit()
 
-inputs = [{"shape": (None,), "name": "node_number", "dtype": "int64", "ragged": True},
+input_configs = [{"shape": (None,), "name": "node_number", "dtype": "int64", "ragged": True},
           {"shape": (None, 3), "name": "node_coordinates", "dtype": "float32", "ragged": True},
           {"shape": (None, 2), "name": "range_indices", "dtype": "int64", "ragged": True},
           {"shape": (None, 3), "name": "angle_indices_nodes", "dtype": "int64", "ragged": True},
@@ -84,24 +85,24 @@ inputs = [{"shape": (None,), "name": "node_number", "dtype": "int64", "ragged": 
           {"shape": (None,), "name": "esp", "dtype": "float32", "ragged": True},
           {"shape": (None, 3), "name": "esp_grad", "dtype": "float32", "ragged": True}]
 
-outputs = [
+output_configs = [
     {"name": "charge", "shape": (None, 1), "ragged": True},
     {"name": "graph_labels", "ragged": False},
     {"name": "force", "shape": (None, 3), "ragged": True}
 ]
 charge_output = {"name": "charge", "shape": (None, 1), "ragged": True}
 
-# X = dataset[[1300]].tensor(inputs)
+# X = dataset[[1300]].tensor(input_configs)
 # [print(x.shape) for x in X]
-# save_poi_inputs(X,inputs)
+# save_poi_inputs(X,input_configs)
 
 @ks.utils.register_keras_serializable(package="kgcnn", name="zero_loss_function")
 def zero_loss_function(y_true, y_pred):
     return 0
 
-model = tf.keras.models.load_model(model_path, compile=False)
+models = [tf.keras.models.load_model(model_path, compile=False) for model_path in model_paths]
 
-model.summary()
+models[0].summary()
 
 # scaler = EnergyForceExtensiveLabelScaler()
 # scaler_mapping = {"atomic_number": "node_number", "y": ["graph_labels", "force"]}
@@ -135,16 +136,25 @@ data_point.set("force", forces)
 dataset.append(data_point)
 
 test_index = [-1]
-input_tensor = dataset[test_index].tensor(inputs)
+input_tensor = dataset[test_index].tensor(input_configs)
 input_geom = np.array(dataset[test_index[0]].get("node_coordinates"))
 input_distances = distance_matrix(input_geom, input_geom)
-predicted_charge, predicted_energy, predicted_force= model.predict(input_tensor, verbose=2)
-predicted_charge = np.array(predicted_charge).reshape(-1,1)
-predicted_energy = np.array(predicted_energy).reshape(-1,1)
-predicted_force = np.array(predicted_force).reshape(-1,1)
-true_charge = np.array(dataset[test_index].get("charge")).reshape(-1,1)
-true_energy = np.array(dataset[test_index].get("graph_labels")).reshape(-1,1)
-true_force = np.array(dataset[test_index].get("force")).reshape(-1,1)
+
+outputs_models = []
+for model in models:
+    outputs_model = model.predict(input_tensor, verbose=2)
+    outputs_model = [np.array(output).reshape(-1,1) for output in outputs_model]
+    outputs_models.append(outputs_model)
+
+predicted_charges, predicted_energies, predicted_forces = [np.stack(outputs, axis=0) for outputs in zip(*outputs_models)]
+print(predicted_charges.shape, predicted_energies.shape, predicted_forces.shape)
+
+true_charge, true_energy, true_force = [
+    np.array(output.to_list()).reshape(-1,1) if isinstance(output, tf.RaggedTensor)
+    else output.numpy().reshape(-1,1)
+    for output in dataset[test_index].tensor(output_configs)]
+print(true_charge.shape, true_energy.shape, true_force.shape)
+
 
 with open("adaptive_sampling.gro", "r") as f:
     lines = f.readlines()
@@ -162,35 +172,36 @@ else:
 
 if starting_structure_idx is not None:
     print("-----------------Input assertion--------------------------")
-    starting_inputs = dataset[starting_structure_idx].tensor(inputs)
+    starting_inputs = dataset[starting_structure_idx].tensor(input_configs)
     starting_geom = np.array(dataset[starting_structure_idx[0]].get("node_coordinates"))
     starting_distances = distance_matrix(starting_geom, starting_geom)
     true_true_charge = np.array(dataset[starting_structure_idx].get("charge"))
     true_true_energy = np.array(dataset[starting_structure_idx].get("graph_labels"))
     true_true_force = np.array(dataset[starting_structure_idx].get("force"))
-    for network_input_dict, starting_input, calc_input in zip(inputs, starting_inputs, input_tensor):
+    for input_config, starting_input, calc_input in zip(input_configs, starting_inputs, input_tensor):
         try:
-            if network_input_dict["name"] == "node_coordinates":
-                assert np.allclose(starting_distances, input_distances, atol=1e-00), f"{network_input_dict['name']} Assertion failed"
-            elif network_input_dict["name"] == "range_indices" or network_input_dict["name"] == "angle_indices_nodes":
-                assert calc_input.numpy().shape[1] == starting_input.numpy().shape[1], f"{network_input_dict['name']} Assertion possibly failed"
+            if input_config["name"] == "node_coordinates":
+                assert np.allclose(starting_distances, input_distances, atol=1e-00), f"{input_config['name']} Assertion failed"
+            elif input_config["name"] == "range_indices" or input_config["name"] == "angle_indices_nodes":
+                assert calc_input.numpy().shape[1] == starting_input.numpy().shape[1], f"{input_config['name']} Assertion possibly failed"
             else:
-                assert np.allclose(starting_input.numpy(), calc_input.numpy(), atol=1e-02), f"{network_input_dict['name']} Assertion failed"
+                assert np.allclose(starting_input.numpy(), calc_input.numpy(), atol=1e-02), f"{input_config['name']} Assertion failed"
         except :
-            if network_input_dict["name"] == "node_coordinates":
+            if input_config["name"] == "node_coordinates":
                 print(starting_geom[0:2])
                 print(input_geom[0:2])
                 print(input_distances[0])
                 print(starting_distances[0])
                 raise
-            elif network_input_dict["name"] == "range_indices" or network_input_dict["name"] == "angle_indices_nodes":
-                print(f"{network_input_dict['name']} calc input vs training: {calc_input.numpy().shape[1]} vs {starting_input.numpy().shape[1]}. Differences might result from different handling of cutoff and might be inconsequential.")
+            elif input_config["name"] == "range_indices" or input_config["name"] == "angle_indices_nodes":
+                print(f"{input_config['name']} calc input vs training: {calc_input.numpy().shape[1]} vs {starting_input.numpy().shape[1]}. Differences might result from different handling of cutoff and might be inconsequential.")
             else:
                 print(calc_input)
                 print(starting_input)
                 raise
     print("Input Assertions passed")
 print("------------------Output assertion-------------------------")
+predicted_charge, predicted_energy, predicted_force = [output[0] for output in [predicted_charges, predicted_energies, predicted_forces]]
 try:
     assert np.allclose(predicted_charge, true_charge, atol=1e-05), "Charge Assertion failed"
     assert np.allclose(predicted_energy, true_energy, atol=1e-05), "Energy Assertion failed"
@@ -213,12 +224,22 @@ except AssertionError:
         print(true_true_force)
     raise
 print("Output Assertions passed")
+
+print("------------------Std assertion-------------------------")
+force_std = np.std(predicted_forces, axis=0) # shape(n_molecules,n_atoms,3)
+qm_mlmm_std = np.loadtxt("qm_mlmm_std.xyz", skiprows=2, usecols=(2,3,4))
+try:
+    assert np.allclose(force_std.reshape(-1,3), qm_mlmm_std, atol=1e-04), "Std Assertion failed"
+except AssertionError:
+    print("Std")
+    print(force_std.reshape(-1,3))
+    print(qm_mlmm_std)
 exit()
 
 kf = KFold(n_splits=3, random_state=42, shuffle=True)
 
 for test_index, train_index in kf.split(X=np.expand_dims(np.array(dataset.get("graph_labels")), axis=-1)): # Switched train and test indices to keep training data separate, Could also be read from the json-file now
-    predicted_charge, predicted_energy, predicted_force= model.predict(dataset[test_index].tensor(inputs), verbose=2)
+    predicted_charge, predicted_energy, predicted_force= model.predict(dataset[test_index].tensor(input_configs), batch_size=128, verbose=2)
     break
 
 #scaler.inverse_transform_dataset(dataset, **scaler_mapping)
