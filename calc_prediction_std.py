@@ -7,6 +7,9 @@ import warnings
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 warnings.filterwarnings("ignore")
 
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
 import numpy as np
 from sklearn.model_selection import KFold
 import tensorflow as tf
@@ -27,7 +30,8 @@ model_paths = [
     "model_energy_force2"
 ]
 
-data_directory="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_water"
+#data_directory="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_water"
+data_directory="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_vacuum"
 dataset_name="ThiolDisulfidExchange"
 # data_directory="/lustre/work/ws/ws1/ka_he8978-dipeptide/training_data/B3LYP_aug-cc-pVTZ_water"
 # dataset_name="Alanindipeptide"
@@ -66,7 +70,7 @@ models = [tf.keras.models.load_model(model_path, compile=False) for model_path i
 predicted_charges, predicted_energies, predicted_forces = [], [], []
 
 for model in models:
-    predicted_charge, predicted_energy, predicted_force = model.predict(dataset.tensor(inputs), verbose=2)
+    predicted_charge, predicted_energy, predicted_force = model.predict(dataset.tensor(inputs), batch_size=128, verbose=2)
 
     predicted_charges.append(predicted_charge)
     predicted_energies.append(predicted_energy)
@@ -102,7 +106,8 @@ max_charge_std = tf.reduce_max(charge_std) # shape(1)
 max_energy_std = tf.reduce_max(energy_std) # shape(1)
 max_force_std = tf.reduce_max(force_std) # shape(1)
 
-force_threshold = mean_force_std + 4*std_force_std
+energy_threshold = mean_energy_std + 1.96*std_energy_std
+force_threshold = mean_force_std + 10*std_force_std
 
 print("Mean Charge Mean:", mean_charge_mean)
 print("Mean Energy Mean:", mean_energy_mean)
@@ -120,31 +125,35 @@ print("Max Charge Std:", max_charge_std)
 print("Max Energy Std:", max_energy_std)
 print("Max Force Std:", max_force_std)
 
-print("Force Threshold:", force_threshold)
+print("Suggested Energy Treshold:", energy_threshold)
+print("Suggested Force Threshold:", force_threshold)
 
-# poi = 12395
-# print(dataset.tensor(inputs)[1][poi]/constants.angstrom_to_bohr/10)
-# print(force_std[poi])
 
-# true_charge = np.array(dataset.get("charge")).reshape(-1,1)
-# true_energy = np.array(dataset.get("graph_labels")).reshape(-1,1)*constants.hartree_to_kcalmol
-# true_force = np.array(dataset.get("force")).reshape(-1,1)
+energy_dict = {
+    "Energy Std": tf.reshape(energy_std,(-1,))
+}
+energy_df = pd.DataFrame(energy_dict)
 
-# predicted_charge = np.array(predicted_charge).reshape(-1,1)
-# predicted_energy = np.array(predicted_energy).reshape(-1,1)*constants.hartree_to_kcalmol
-# predicted_force = np.array(predicted_force).reshape(-1,1)
+# plt.hist(tf.reshape(force_std,(-1,)), bins=50, color='skyblue', edgecolor='black')
+sns.histplot(data=energy_df, x="Energy Std")
+plt.xlabel('Energy Standard Deviation')
+plt.ylabel('Frequency')
+plt.grid(True)
+plt.tight_layout()
+plt.savefig("energy_std_histogram.png")
+plt.close()
 
-# plot_predict_true(predicted_charge, true_charge,
-#     filepath="", data_unit="e",
-#     model_name="HDNNP", dataset_name=dataset_name, target_names="Charge",
-#     error="RMSE", file_name=f"predict_charge_std_calc.png", show_fig=False)
+force_dict = {
+    "Force Std": tf.reshape(force_std,(-1,)),
+    "Atom Types": np.array(dataset.get("node_number")).repeat(3).flatten()
+}
+force_df = pd.DataFrame(force_dict)
+force_df["Atom Types"] = force_df["Atom Types"].replace(constants.atomic_number_to_element)
 
-# plot_predict_true(predicted_energy, true_energy,
-#     filepath="", data_unit=r"$\frac{kcal}{mol}$",
-#     model_name="HDNNP", dataset_name=dataset_name, target_names="Energy",
-#     error="RMSE", file_name=f"predict_energy_std_calc.png", show_fig=False)
-
-# plot_predict_true(predicted_force, true_force,
-#     filepath="", data_unit="Eh/B",
-#     model_name="HDNNP", dataset_name=dataset_name, target_names="Force",
-#     error="RMSE", file_name=f"predict_force_std_calc.png", show_fig=False)
+sns.histplot(data=force_df, x="Force Std", hue="Atom Types", stat='probability', common_norm=False)
+plt.xlabel('Force Standard Deviation')
+plt.ylabel('Probability')
+plt.grid(True)
+plt.tight_layout()
+plt.savefig("force_std_histogram.png")
+plt.close()
