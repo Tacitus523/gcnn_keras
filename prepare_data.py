@@ -72,9 +72,9 @@ def copy_data(geometry_path: str, charge_path: str, esp_path: str, esp_grad_path
         shutil.copyfile(geometry_path, target_geometry_path)
     if os.path.abspath(charge_path) != os.path.abspath(target_charge_path):
         shutil.copyfile(charge_path, target_charge_path)
-    if os.path.abspath(esp_path) != os.path.abspath(target_esp_path):
+    if os.path.abspath(esp_path) != os.path.abspath(target_esp_path) and os.path.isfile(esp_path): # ESP is optional
         shutil.copyfile(esp_path, target_esp_path)
-    if os.path.abspath(esp_grad_path) != os.path.abspath(target_esp_grad_path):
+    if os.path.abspath(esp_grad_path) != os.path.abspath(target_esp_grad_path) and os.path.isfile(esp_grad_path): # ESP gradients are optional
         shutil.copyfile(esp_grad_path, target_esp_grad_path)
     if os.path.abspath(force_path) != os.path.abspath(target_force_path):
         shutil.copyfile(force_path, target_force_path)
@@ -156,14 +156,13 @@ def prepare_kgcnn_dataset(data_directory: str, dataset_name: str, cutoff: float)
     dataset.save()
 
 if __name__ == "__main__":
-    target_path = join(os.path.normpath(os.path.dirname(__file__)), join("data", TARGET_FOLDER))
-    if not os.path.exists(target_path):
-        os.makedirs(target_path)
+    if not os.path.exists(TARGET_FOLDER):
+        os.makedirs(TARGET_FOLDER)
     elif OVERWRITE is False:
-        print(f"{target_path} already exists and OVERWRITE is False. Aborting")
+        print(f"{TARGET_FOLDER} already exists and OVERWRITE is False. Aborting")
         exit(1)
     else:
-        print(f"Warning: Existing data in {target_path} was overwritten")
+        print(f"Warning: Existing data in {TARGET_FOLDER} was overwritten")
 
     geometry_path = join(DATA_FOLDER, GEOMETRY_FILE)
     energy_path = join(DATA_FOLDER, ENERGY_FILE)
@@ -175,7 +174,7 @@ if __name__ == "__main__":
     if CUTOFF is None:
         CUTOFF = 10.0
     
-    copy_data(geometry_path=geometry_path, charge_path=charge_path, esp_path=esp_path, esp_grad_path=esp_grad_path, force_path=force_path, prefix=PREFIX, target_path=target_path)
-    make_and_write_csv(energy_path=energy_path, total_charge=TOTAL_CHARGE, prefix=PREFIX, target_path=target_path)
+    copy_data(geometry_path=geometry_path, charge_path=charge_path, esp_path=esp_path, esp_grad_path=esp_grad_path, force_path=force_path, prefix=PREFIX, target_path=TARGET_FOLDER)
+    make_and_write_csv(energy_path=energy_path, total_charge=TOTAL_CHARGE, prefix=PREFIX, target_path=TARGET_FOLDER)
     
-    prepare_kgcnn_dataset(data_directory=target_path, dataset_name=PREFIX, cutoff=CUTOFF)
+    prepare_kgcnn_dataset(data_directory=TARGET_FOLDER, dataset_name=PREFIX, cutoff=CUTOFF)
