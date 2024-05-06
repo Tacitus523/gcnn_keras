@@ -10,8 +10,8 @@ import warnings
 
 OVERWRITE = True # Set to True to enforce the writing in TARGET_FOLDER possibly overwriting data
 
-DATA_FOLDER = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_vacuum" # Folder that contains data the files
-GEOMETRY_FILE = "geoms.xyz" # path to geometry-file, gromacs-format, in Angstrom
+DATA_FOLDER = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_water/test" # Folder that contains data the files
+GEOMETRY_FILE = "ThiolDisulfidExchange.xyz" # path to geometry-file, gromacs-format, in Angstrom
 ENERGY_FILE = "energy_diff.txt" # path to energy-file, no header, separated by new lines, in Hartree
 CHARGE_FILE = "charges.txt" # path to charge-file, one line per molecule geometry,  "" if not available, in elementary charges
 ESP_FILE = "esps_by_mm.txt" # path to esp caused by mm atoms, one line per molecule geometry, "" if not available, in V
@@ -22,7 +22,7 @@ MAX_NEIGHBORS = 25 # Maximal neighbors per atom to be considered relevant, disre
 FORCE_FILE = "forces.xyz" # path to force-file, "" if not available, in Eh/Bohr, apparently given like that from Orca
 TOTAL_CHARGE = -1 # total charge of molecule, None if not available, different charges not supported
 PREFIX = "ThiolDisulfidExchange" # prefix to generated files, compulsary for kgcnn read-in
-TARGET_FOLDER = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_vacuum" # target folder to save the data
+TARGET_FOLDER = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_water/test" # target folder to save the data
 
 BABEL_DATADIR = "/usr/local/run/openbabel-2.4.1" # local installation of openbabel
 os.environ['BABEL_DATADIR'] = BABEL_DATADIR
@@ -106,6 +106,7 @@ def prepare_kgcnn_dataset(data_directory: str, dataset_name: str, cutoff: float)
 
     dataset.map_list(method="set_range", max_distance=(cutoff+1.0)*constants.angstrom_to_bohr, max_neighbours=MAX_NEIGHBORS)
     dataset.map_list(method="set_angle")
+    dataset.map_list(method="count_nodes_and_edges", total_nodes="total_nodes", total_edges="total_ranges", count_nodes="node_number", count_edges="range_indices")
     
     charge_path = os.path.join(os.path.normpath(os.path.dirname(dataset.file_path)), "charges.txt")
     try:
