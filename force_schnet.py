@@ -31,7 +31,7 @@ from kgcnn.model.force import EnergyForceModel
 
 # DEFAULT VALUES
 # DATA READ AND SAVE
-DATA_DIRECTORY = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_vacuum" # Folder containing DATASET_NAME.kgcnn.pickle
+DATA_DIRECTORY = "/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_vacuum" # Folder containing DATASET_NAME.kgcnn.pickle
 DATASET_NAME = "ThiolDisulfidExchange" # Used in naming plots and looking for data
 MODEL_PREFIX = "model_energy_force_schnet" # Will be used to save the models
 
@@ -75,7 +75,7 @@ if args.config_path is not None:
     ENERGY_HIDDEN_ACTIVATION     = config_data.get("ENERGY_HIDDEN_ACTIVATION", ENERGY_HIDDEN_ACTIVATION)
     ENERGY_BATCH_SIZE            = config_data.get("ENERGY_BATCH_SIZE", ENERGY_BATCH_SIZE)
     ENERGY_EARLY_STOPPING        = config_data.get("ENERGY_EARLY_STOPPING", ENERGY_EARLY_STOPPING)
-    FORCE_LOSS_FACTOR            = config_data.get("ENERGY_EARLY_STOPPING", FORCE_LOSS_FACTOR)  
+    FORCE_LOSS_FACTOR            = config_data.get("FORCE_LOSS_FACTOR", FORCE_LOSS_FACTOR)  
 
 file_name = f"{DATASET_NAME}.csv"
 print("Dataset:", DATA_DIRECTORY+file_name)
