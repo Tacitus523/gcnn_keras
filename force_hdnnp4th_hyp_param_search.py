@@ -17,7 +17,7 @@ tf.get_logger().setLevel("ERROR")
 ks=tf.keras
 print(tf.config.list_physical_devices('GPU'))
 import keras_tuner as kt
-from tensorflow.keras.activations import relu, tanh, elu, selu
+from tensorflow.keras.activations import relu, tanh, elu, selu # type: ignore
 
 from kgcnn.graph.base import GraphDict
 from kgcnn.data.base import MemoryGraphList, MemoryGraphDataset
@@ -27,7 +27,7 @@ from kgcnn.literature.HDNNP4th import make_model_behler_charge_separat as make_m
 from kgcnn.data.transform.scaler.force import EnergyForceExtensiveLabelScaler
 from kgcnn.utils.plots import plot_predict_true, plot_train_test_loss, plot_test_set_prediction
 from kgcnn.utils.devices import set_devices_gpu
-from kgcnn.utils import constants
+from kgcnn.utils import constants, callbacks
 from kgcnn.model.force import EnergyForceModel
 from kgcnn.model.mlmm import MLMMEnergyForceModel
 from kgcnn.metrics.loss import RaggedMeanAbsoluteError
@@ -276,13 +276,6 @@ x_train, y_train = dataset[train_index].tensor(input_config), dataset[train_inde
 x_val, y_val = dataset[val_index].tensor(input_config), dataset[val_index].tensor(outputs)
 x_test, y_test = dataset[test_index].tensor(input_config), dataset[test_index].tensor(outputs)
 
-class LearningRateLoggingCallback(tf.keras.callbacks.Callback):
-    def on_epoch_end(self, epoch, logs=None):
-        optimizer = self.model.optimizer
-        current_lr = optimizer.lr.numpy()
-        if logs is not None:
-            logs["lr"] = current_lr
-
 # Hyperparameter Search
 max_epochs = 400
 hp_factor = 3
@@ -290,7 +283,7 @@ hyperband_iterations = 1
 batch_size = 16
 patience = 100
 earlystop = ks.callbacks.EarlyStopping(monitor="val_loss", mode="min", patience=patience, verbose=0)
-lrlog = LearningRateLoggingCallback()
+lrlog = callbacks.LearningRateLoggingCallback()
 callbacks = [earlystop, lrlog]
 my_hyper_model = MyHyperModel()
 tuner = kt.Hyperband(my_hyper_model, objective=kt.Objective("val_loss", direction="min"),

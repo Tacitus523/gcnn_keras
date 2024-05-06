@@ -104,7 +104,7 @@ if args.config_path is not None:
     ETA_ANG_ARRAY = config_data.get("ETA_ANG_ARRAY", ETA_ANG_ARRAY)
 
     MAX_ELEMENTS = config_data.get("MAX_ELEMENTS", CUTOFF_ANG)
-    ELEMENTAL_MAPPING = config_data.get("ELEMENTAL_MAPPING", list(range(1, MAX_ELEMENTS+1)))
+    ELEMENTAL_MAPPING = config_data["ELEMENTAL_MAPPING"]
 
     CHARGE_EPOCHS                = config_data.get("CHARGE_EPOCHS", CHARGE_EPOCHS)
     CHARGE_INITIAL_LEARNING_RATE = config_data.get("CHARGE_INITIAL_LEARNING_RATE", CHARGE_INITIAL_LEARNING_RATE)

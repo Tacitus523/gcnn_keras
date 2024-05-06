@@ -52,7 +52,7 @@ class ACSFG2(GraphBaseLayer):
 
     """
 
-    _max_atomic_number = 96
+    _max_atomic_number = 30
 
     def __init__(self,
                  eta_rs_rc: list,
@@ -262,7 +262,7 @@ class ACSFG4(GraphBaseLayer):
 
     """
 
-    _max_atomic_number = 96
+    _max_atomic_number = 30
 
     def __init__(self, eta_zeta_lambda_rc: list,
                  element_mapping: list,
