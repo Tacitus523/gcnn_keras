@@ -26,9 +26,9 @@ from kgcnn.data.transform.scaler.mol import ExtensiveMolecularScaler
 from kgcnn.utils.plots import plot_predict_true, plot_train_test_loss, plot_test_set_prediction
 from kgcnn.utils.devices import set_devices_gpu
 from kgcnn.utils import constants, save_load_utils
-DATA_DIRECTORY = "data/B3LYP_aug-cc-pVTZ_vacuum" # Folder containing DATASET_NAME.kgcnn.pickle
-DATASET_NAME = "ThiolDisulfidExchange" # Used in naming plots and looking for data
-MODEL_PREFIX = "model_energy" # Will be used to save the models
+DATA_DIRECTORY = "hierKoennteDeinPfadStehen" # Folder containing DATASET_NAME.kgcnn.pickle
+DATASET_NAME = "datasetName" # Used in naming plots and looking for data
+MODEL_PREFIX = "targetModelName" # Will be used to save the models
 
 # SYMMETRY FUNCTION HYPER PARAMETERS
 # Radial parameters
@@ -196,7 +196,7 @@ for test_index, train_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
 save_load_utils.save_history(hists)
 save_load_utils.save_training_indices(train_indices, test_indices)
 
-model_energy.summary()
+model.summary()
 
 #scaler.inverse_transform_dataset(dataset, **scaler_mapping)
 true_energy = np.array(dataset[test_index].get("graph_labels")).reshape(-1,1)*constants.hartree_to_kcalmol
