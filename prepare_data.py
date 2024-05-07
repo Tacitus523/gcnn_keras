@@ -115,7 +115,7 @@ def prepare_kgcnn_dataset(data_directory: str, dataset_name: str, cutoff: float)
             dataset[i].set("charge", charges[i])
         at_count = charges.shape[1]
         print("Got Charges")
-    except:
+    except FileNotFoundError:
         print("No Charges")
         at_count = AT_COUNT
 
@@ -127,7 +127,7 @@ def prepare_kgcnn_dataset(data_directory: str, dataset_name: str, cutoff: float)
         for i in range(len(dataset)):
             dataset[i].set("force", forces[i])
         print("Got Forces")
-    except:
+    except FileNotFoundError:
         print("No Forces")    
     
     V_to_au = 1/27.211386245988
@@ -137,7 +137,7 @@ def prepare_kgcnn_dataset(data_directory: str, dataset_name: str, cutoff: float)
         for i in range(len(dataset)):
             dataset[i].set("esp", esps[i])
         print("Got ESP")
-    except:
+    except FileNotFoundError:
         for i in range(len(dataset)):
             dataset[i].set("esp", np.zeros_like(dataset[i]["node_number"], dtype=np.float64))
         print("Vacuum")
@@ -149,7 +149,7 @@ def prepare_kgcnn_dataset(data_directory: str, dataset_name: str, cutoff: float)
         for i in range(len(dataset)):
             dataset[i].set("esp_grad", esp_grads[i])
         print("Got ESP Gradient")
-    except:
+    except FileNotFoundError:
         for i in range(len(dataset)):
             dataset[i].set("esp_grad", np.zeros_like(dataset[i]["node_coordinates"], dtype=np.float64))
         print("No ESP Gradient")
