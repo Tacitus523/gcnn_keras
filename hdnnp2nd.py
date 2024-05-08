@@ -192,6 +192,7 @@ for test_index, train_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
     test_indices.append(test_index)
     model.save(MODEL_PREFIX+str(model_index))
     model_index += 1
+    break
 
 save_load_utils.save_history(hists)
 save_load_utils.save_training_indices(train_indices, test_indices)
