@@ -136,7 +136,7 @@ for i in range(len(inputs)):
 
 # Scaling energy
 scaler = ExtensiveMolecularScaler(standardize_scale=False)
-scaler_mapping = {"atomic_number": "node_number", "y": ["graph_labels"]}
+scaler_mapping = {"atomic_number": "node_number", "X": "graph_labels"}
 scaler.fit_transform_dataset(dataset, **scaler_mapping)
 
 N_SPLITS = 3 # Used to determine amount of splits in training
