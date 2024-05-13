@@ -135,9 +135,17 @@ for i in range(len(inputs)):
     print(f"Shape {model_config['inputs'][i]['name']}:", inputs[i].shape)
 
 # Scaling energy
-scaler = ExtensiveMolecularScaler(standardize_scale=False)
-scaler_mapping = {"atomic_number": "node_number", "X": "graph_labels"}
-scaler.fit_transform_dataset(dataset, **scaler_mapping)
+scaler = ExtensiveMolecularScaler(atomic_number="node_number", X="graph_labels", standardize_scale=False)
+scaler.fit_transform_dataset(dataset)
+print([datapoint["node_number"] for datapoint in dataset[:3]])
+# Check if scaling is correctly inverted
+assert np.all(dataset[:3].tensor(outputs) == scaler.inverse_transform(
+    scaler.transform(
+        dataset[:3].tensor(outputs), 
+        atomic_number=[datapoint["node_number"] for datapoint in dataset[:3]]
+    ),
+    atomic_number=[datapoint["node_number"] for datapoint in dataset[:3]]
+))
 
 N_SPLITS = 3 # Used to determine amount of splits in training
 kf = KFold(n_splits=N_SPLITS, random_state=42, shuffle=True)
@@ -199,11 +207,14 @@ save_load_utils.save_training_indices(train_indices, test_indices)
 
 model.summary()
 
-scaler.inverse_transform_dataset(dataset, **scaler_mapping)
+scaler.inverse_transform_dataset(dataset)
 true_energy = np.array(dataset[test_index].get("graph_labels")).reshape(-1,1)*constants.hartree_to_kcalmol
 predicted_energy = model.predict(x_test, batch_size=ENERGY_BATCH_SIZE, verbose=0)
-predicted_energy = scaler.inverse_transform(model.predict(x_test, verbose=0), atomic_number=dataset[test_index].get("node_number"))
+print(true_energy.shape, predicted_energy.shape)
+predicted_energy = scaler.inverse_transform(np.array(predicted_energy).flatten(), atomic_number=dataset[test_index].get("node_number"))
+print(true_energy.shape, predicted_energy.shape)
 predicted_energy = np.array(predicted_energy).reshape(-1,1)*constants.hartree_to_kcalmol
+print(true_energy.shape, predicted_energy.shape)
 
 plot_predict_true(predicted_energy, true_energy,
     filepath="", data_unit=r"$\frac{kcal}{mol}$",
