@@ -46,4 +46,6 @@ ExampleQM/
 schnet_save_test.py
 test_scaling_layer.py
 output_scaler.py
-data/
+test_notebook.ipynb
+force_DimeNetPP.py
+force_DMPNN.py

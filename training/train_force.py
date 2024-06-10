@@ -7,6 +7,8 @@ import os
 import argparse
 from datetime import timedelta
 from tensorflow_addons import optimizers, metrics
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import kgcnn.training.schedule
 import kgcnn.training.scheduler
 from kgcnn.training.history import save_history_score

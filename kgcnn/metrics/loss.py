@@ -24,3 +24,7 @@ class RaggedMeanAbsoluteError(ks.losses.Loss):
     @tf.function
     def call(self, y_true, y_pred):
         return ks.backend.mean(tf.abs(y_pred.flat_values - y_true.flat_values), axis=-1)
+    
+@ks.utils.register_keras_serializable(package="kgcnn", name="zero_loss_function")
+def zero_loss_function(y_true, y_pred):
+    return 0
