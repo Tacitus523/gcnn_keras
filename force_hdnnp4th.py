@@ -362,7 +362,7 @@ if __name__ == "__main__":
         ZETA_ARRAY    = config_data.get("ZETA_ARRAY", ZETA_ARRAY)
         ETA_ANG_ARRAY = config_data.get("ETA_ANG_ARRAY", ETA_ANG_ARRAY)
 
-        MAX_ELEMENTS = config_data.get("MAX_ELEMENTS", CUTOFF_ANG)
+        MAX_ELEMENTS = config_data.get("MAX_ELEMENTS", MAX_ELEMENTS)
         ELEMENTAL_MAPPING = config_data["ELEMENTAL_MAPPING"]
 
         CHARGE_EPOCHS                = config_data.get("CHARGE_EPOCHS", CHARGE_EPOCHS)
