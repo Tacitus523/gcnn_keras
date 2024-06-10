@@ -60,6 +60,12 @@ OUTPUTS = [
     {"name": "graph_labels", "ragged": False},
     {"name": "force", "shape": (None, 3), "ragged": True}
 ]
+
+# Assignment of parameters to elements
+MAX_ELEMENTS = 30 # Length of the array with the symmetry function parameters, the highest possible atomic number of the elements is determined by this
+ELEMENTAL_MAPPING = [1, 6, 16] # Parameters can be given individually per element. This list maps the parameters to its element
+#ELEMENTAL_MAPPING = [1, 6, 7, 8] # Parameters can be given individually per element. This list maps the parameters to its element
+
 # CHARGE MODEL HYPER PARAMETERS
 CHARGE_EPOCHS                = 50 # Epochs during training
 CHARGE_INITIAL_LEARNING_RATE = 1e-4 # Initial learning rate during training
@@ -74,21 +80,6 @@ ENERGY_FINAL_LEARNING_RATE   = 1e-8 # Initial learning rate during training
 ENERGY_BATCH_SIZE            = 128 # Batch size during training
 ENERGY_EARLY_STOPPING        = 10 # Patience of Early Stopping. If 0, no Early Stopping, Early Stopping breaks loss history plot
 FORCE_LOSS_FACTOR            = 200 # Weight of the force loss relative to the energy loss, gets normalized
-
-TRAIN_CONFIG = {
-    "charge_initial_learning_rate": CHARGE_INITIAL_LEARNING_RATE,
-    "charge_final_learning_rate": CHARGE_FINAL_LEARNING_RATE,
-    "charge_epochs": CHARGE_EPOCHS,
-    "charge_early_stopping": CHARGE_EARLY_STOPPING,
-    "charge_batch_size": CHARGE_BATCH_SIZE,
-    "energy_initial_learning_rate": ENERGY_INITIAL_LEARNING_RATE,
-    "energy_final_learning_rate": ENERGY_FINAL_LEARNING_RATE,
-    "energy_epochs": ENERGY_EPOCHS,
-    "energy_early_stopping": ENERGY_EARLY_STOPPING,
-    "energy_batch_size": ENERGY_BATCH_SIZE,
-    "force_loss_factor": FORCE_LOSS_FACTOR,
-    "model_prefix": MODEL_PREFIX
-}
 
 # Define a custom Swish activation function, Tensorflow one has problems with saving custom gradients
 def swish(x):
@@ -120,12 +111,19 @@ class MyRandomTuner(kt.RandomSearch):
         dataset = kwargs.get('dataset')
         if dataset is None:
             raise ValueError("Dataset must be provided")
+        
+        build_config = kwargs.get('build_config')
+        if build_config is None:
+            raise ValueError("Build config must be provided")
+        
+        train_config = kwargs.get('train_config')
+        if train_config is None:
+            raise ValueError("Train config must be provided")
 
         hp = trial.hyperparameters
             
         # Radial parameters
         cutoff_rad = hp.Float("cutoff_rad", 8, 30, 8) # in Bohr
-        #cutoff_rad = 20 # in Bohr
         Rs_array_choice = hp.Choice("Rs_array", [
             "0.0 4.0 6.0 8.0",
             "0.0 3.0 5.0 7.0 9.0",
@@ -145,7 +143,6 @@ class MyRandomTuner(kt.RandomSearch):
 
         # Angular parameters
         cutoff_ang = hp.Float("cutoff_ang", 8, 30, 8) # in Bohr
-        # cutoff_ang = 20 # in Bohr
         lambd_array_choice = hp.Choice("lamb_array", [
             "-1 1",
             "-1 0 1", 
@@ -185,11 +182,11 @@ class MyRandomTuner(kt.RandomSearch):
         energy_activation = hp.Choice("energy_activation", ["relu", "tanh", "elu", "selu", "swish", "leaky_relu"])
         energy_activations = [lambda x: custom_activation(x, energy_activation)]*energy_n_layers + ["linear"]
 
-        max_elements = 30
-        elemental_mapping = [1, 6, 16]
+        max_elements = build_config["max_elements"]
+        elemental_mapping = build_config["elemental_mapping"]
         model_config = {
             "name": "HDNNP4th",
-            "inputs": INPUT_CONFIG,
+            "inputs": build_config["input_config"],
             "g2_kwargs": {"eta": eta_array, "rs": Rs_array, "rc": cutoff_rad, "elements": elemental_mapping},
             "g4_kwargs": {"eta": eta_ang_array, "zeta": zeta_array, "lamda": lambd_array, "rc": cutoff_ang, 
                             "elements": elemental_mapping, "multiplicity": 2.0},
@@ -211,7 +208,7 @@ class MyRandomTuner(kt.RandomSearch):
             "use_output_mlp": False
         }
 
-        model_energy_force, test_index, charge_hists, hists, scaler = train_model(dataset, model_config, CHARGE_OUTPUT, OUTPUTS, TRAIN_CONFIG)
+        model_energy_force, test_index, charge_hists, hists, scaler = train_model(dataset, model_config, build_config["charge_output"], build_config["outputs"], train_config)
         return hists[0]
 
 class MyHyperModel(kt.HyperModel):
@@ -379,15 +376,73 @@ class MyHyperModel(kt.HyperModel):
         return hist 
 
 if __name__ == "__main__":
-    # Ability to restrict the model to only use a certain GPU, which is passed with python -g gpu_id
-    ap = argparse.ArgumentParser(description="Handle gpu_ids")
+    # Ability to restrict the model to only use a certain GPU, which is passed with python -g gpu_id, or to use a config file
+    ap = argparse.ArgumentParser(description="Handle gpu_ids and training parameters")
     ap.add_argument("-g", "--gpuid", type=int)
+    ap.add_argument("-c", "--conf", default=None, type=str, dest="config_path", action="store", required=False, help="Path to config file, default: None", metavar="config")
     args = ap.parse_args()
     if args.gpuid is not None:
         set_devices_gpu([args.gpuid])
+    if args.config_path is not None:
+        try:
+            with open(args.config_path, 'r') as config_file:
+                config_data = json.load(config_file)
+        except FileNotFoundError:
+            print(f"Config file {args.config_path} not found.")
+            exit(1)
+
+        for key, value in config_data.items():
+            print(f"{key}: {value}")
+
+        #TODO: Input validation function instead, or try except with raise in except block?
+        DATA_DIRECTORY = config_data["DATA_DIRECTORY"]
+        DATASET_NAME = config_data["DATASET_NAME"]
+        MODEL_PREFIX = config_data.get("MODEL_PREFIX", MODEL_PREFIX)
+
+        MAX_ELEMENTS = config_data.get("MAX_ELEMENTS", MAX_ELEMENTS)
+        ELEMENTAL_MAPPING = config_data["ELEMENTAL_MAPPING"]
+
+        CHARGE_EPOCHS                = config_data.get("CHARGE_EPOCHS", CHARGE_EPOCHS)
+        CHARGE_INITIAL_LEARNING_RATE = config_data.get("CHARGE_INITIAL_LEARNING_RATE", CHARGE_INITIAL_LEARNING_RATE)
+        CHARGE_FINAL_LEARNING_RATE   = config_data.get("CHARGE_FINAL_LEARNING_RATE", CHARGE_FINAL_LEARNING_RATE)
+        CHARGE_BATCH_SIZE            = config_data.get("CHARGE_BATCH_SIZE", CHARGE_BATCH_SIZE)
+        CHARGE_EARLY_STOPPING        = config_data.get("CHARGE_EARLY_STOPPING", CHARGE_EARLY_STOPPING)
+
+        ENERGY_EPOCHS                = config_data.get("ENERGY_EPOCHS", ENERGY_EPOCHS)
+        ENERGY_INITIAL_LEARNING_RATE = config_data.get("ENERGY_INITIAL_LEARNING_RATE", ENERGY_INITIAL_LEARNING_RATE)
+        ENERGY_FINAL_LEARNING_RATE   = config_data.get("ENERGY_FINAL_LEARNING_RATE", ENERGY_FINAL_LEARNING_RATE)
+        ENERGY_BATCH_SIZE            = config_data.get("ENERGY_BATCH_SIZE", ENERGY_BATCH_SIZE)
+        ENERGY_EARLY_STOPPING        = config_data.get("ENERGY_EARLY_STOPPING", ENERGY_EARLY_STOPPING)
+        FORCE_LOSS_FACTOR            = config_data.get("FORCE_LOSS_FACTOR", FORCE_LOSS_FACTOR)
+
+    build_config = {
+        "input_config": INPUT_CONFIG,
+        "charge_output": CHARGE_OUTPUT,
+        "outputs": OUTPUTS,
+        "max_elements": MAX_ELEMENTS,
+        "elemental_mapping": ELEMENTAL_MAPPING,
+    }
+    print(build_config)
+
+    train_config = {
+        "charge_initial_learning_rate": CHARGE_INITIAL_LEARNING_RATE,
+        "charge_final_learning_rate": CHARGE_FINAL_LEARNING_RATE,
+        "charge_epochs": CHARGE_EPOCHS,
+        "charge_early_stopping": CHARGE_EARLY_STOPPING,
+        "charge_batch_size": CHARGE_BATCH_SIZE,
+        "energy_initial_learning_rate": ENERGY_INITIAL_LEARNING_RATE,
+        "energy_final_learning_rate": ENERGY_FINAL_LEARNING_RATE,
+        "energy_epochs": ENERGY_EPOCHS,
+        "energy_early_stopping": ENERGY_EARLY_STOPPING,
+        "energy_batch_size": ENERGY_BATCH_SIZE,
+        "force_loss_factor": FORCE_LOSS_FACTOR,
+        "model_prefix": MODEL_PREFIX
+    }
+    print(train_config)
 
     # Load dataset
     dataset = load_data(DATA_DIRECTORY, DATASET_NAME)
+    print(DATA_DIRECTORY, DATASET_NAME)
 
     # # # Scaling energy and forces.
     # # scaler = EnergyForceExtensiveLabelScaler()
@@ -447,7 +502,7 @@ if __name__ == "__main__":
         project_name="random_search"
     )
     random_tuner.search_space_summary()
-    random_tuner.search(dataset=dataset)
+    random_tuner.search(dataset=dataset, build_config=build_config, train_config=train_config)
 
     random_tuner.results_summary(num_trials=10)
 
