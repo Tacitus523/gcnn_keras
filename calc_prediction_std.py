@@ -31,10 +31,12 @@ model_paths = [
 ]
 
 #data_directory="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_water"
-data_directory="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_vacuum"
-dataset_name="ThiolDisulfidExchange"
+#data_directory="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_vacuum"
+# data_directory="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/07_vacuum_sampling_retry/adaptive_sampling/current_training_data"
+# dataset_name="ThiolDisulfidExchange"
+data_directory="/lustre/work/ws/ws1/ka_he8978-dipeptide/training_data/B3LYP_aug-cc-pVTZ_vacuum"
 # data_directory="/lustre/work/ws/ws1/ka_he8978-dipeptide/training_data/B3LYP_aug-cc-pVTZ_water"
-# dataset_name="Alanindipeptide"
+dataset_name="Alanindipeptide"
 
 file_name=f"{dataset_name}.csv"
 print("Dataset:", os.path.join(data_directory, file_name))
