@@ -26,24 +26,24 @@ from kgcnn.literature.Schnet import make_model
 from kgcnn.data.transform.scaler.force import EnergyForceExtensiveLabelScaler
 from kgcnn.utils.plots import plot_predict_true, plot_train_test_loss, plot_test_set_prediction
 from kgcnn.utils.devices import set_devices_gpu
-from kgcnn.utils import constants
+from kgcnn.utils import constants, callbacks
 from kgcnn.model.force import EnergyForceModel
 
 # DEFAULT VALUES
 # DATA READ AND SAVE
-DATA_DIRECTORY = "/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_vacuum" # Folder containing DATASET_NAME.kgcnn.pickle
-DATASET_NAME = "ThiolDisulfidExchange" # Used in naming plots and looking for data
+DATA_DIRECTORY = "/lustre/work/ws/ws1/ka_he8978-dipeptide/training_data/B3LYP_aug-cc-pVTZ_vacuum" # Folder containing DATASET_NAME.kgcnn.pickle
+DATASET_NAME = "Alanindipeptide" # Used in naming plots and looking for data
 MODEL_PREFIX = "model_energy_force_schnet" # Will be used to save the models
 
 # ENERGY MODEL HYPER PARAMETERS
-ENERGY_EPOCHS                = 150 # Epochs during training
-ENERGY_INITIAL_LEARNING_RATE = 1e-3 # Initial learning rate during training
+ENERGY_EPOCHS                = 500 # Epochs during training
+ENERGY_INITIAL_LEARNING_RATE = 1e-4 # Initial learning rate during training
 ENERGY_FINAL_LEARNING_RATE   = 1e-8 # Initial learning rate during training
 ENERGY_HIDDEN_LAYERS         = [35, 35] # List of number of nodes per hidden layer 
 ENERGY_HIDDEN_ACTIVATION     = ["tanh", "tanh"] # List of activation functions of hidden layers
 ENERGY_BATCH_SIZE            = 64 # Batch size during training
 ENERGY_EARLY_STOPPING        = 0 # Patience of Early Stopping. If 0, no Early Stopping
-FORCE_LOSS_FACTOR            = 200
+FORCE_LOSS_FACTOR            = 95
 
 # Ability to restrict the model to only use a certain GPU, which is passed with python -g gpu_id
 ap = argparse.ArgumentParser(description="Handle gpu_ids and training parameters")
@@ -87,23 +87,29 @@ print(dataset[0].keys())
 
 model_config = {
     "name": "Schnet",
-    "inputs": [{"shape": (None,), "name": "node_number", "dtype": "int64", "ragged": True},
-               {"shape": (None, 3), "name": "node_coordinates", "dtype": "float32", "ragged": True},
-               {"shape": (None, 2), "name": "edge_indices", "dtype": "int64", "ragged": True}],
-    "input_embedding": {"node": {"input_dim": 95, "output_dim": 64}},
-    "make_distance": True, "expand_distance": True,
-    "interaction_args": {"units": 250, "use_bias": True,
-                         "activation": "swish", "cfconv_pool": "sum"},
+    "inputs": [
+        {"shape": [None], "name": "node_number", "dtype": "int32", "ragged": True},
+        {"shape": [None, 3], "name": "node_coordinates", "dtype": "float32", "ragged": True},
+        {"shape": [None, 2], "name": "range_indices", "dtype": "int64", "ragged": True},
+        # {"shape": (), "name": "total_nodes", "dtype": "int64"},
+        # {"shape": (), "name": "total_ranges", "dtype": "int64"}
+    ],
+    #"cast_disjoint_kwargs": {"padded_disjoint": False},
+    "input_embedding": {"node": {"input_dim": 95, "output_dim": 128}},
+    #"make_distance": True, "expand_distance": True,
+    "interaction_args": {
+        "units": 128, "use_bias": True, "activation": "kgcnn>shifted_softplus",
+        "cfconv_pool": "sum"
+    },
     "node_pooling_args": {"pooling_method": "sum"},
-    "depth": 4,
-    "gauss_args": {"bins": 20, "distance": 4, "offset": 0.0, "sigma": 0.4},
+    "depth": 6,
+    "gauss_args": {"bins": 25, "distance": 5, "offset": 0.0, "sigma": 0.4},
     "verbose": 10,
-    "last_mlp": {"use_bias": True, "units": [250, 150, 100],
-                 "activation": "swish"},
+    "last_mlp": {"use_bias": [True, True, True], "units": [128, 64, 1],
+        "activation": ['kgcnn>shifted_softplus', 'kgcnn>shifted_softplus', 'linear']},
     "output_embedding": "graph", "output_to_tensor": True,
-    "use_output_mlp": True,
-    "output_mlp": {"use_bias": True, "units": [100, 50, 25, 1],
-                   "activation": ["swish"]*3 + ["linear"]}
+    "use_output_mlp": False,
+    "output_mlp": None
 }
 
 outputs = [
@@ -116,11 +122,11 @@ print("Amount of inputs:", len(inputs))
 for i in range(len(inputs)):
     print(f"Shape {model_config['inputs'][i]['name']}:", inputs[i].shape)
 
-
 # # Scaling energy and forces.
-# scaler = EnergyForceExtensiveLabelScaler()
-# scaler_mapping = {"atomic_number": "node_number", "y": ["graph_labels", "force"]}
-# scaler.fit_transform_dataset(dataset, **scaler_mapping)
+# scaler = EnergyForceExtensiveLabelScaler(standardize_coordinates = False,
+#  energy= "graph_labels", force = "force", atomic_number = "node_number",
+#  sample_weight = None)
+# scaler.fit_transform_dataset(dataset)
 
 kf = KFold(n_splits=3, random_state=42, shuffle=True)
 hists = []
@@ -143,15 +149,8 @@ for test_index, train_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
         output_squeeze_states = True,
         is_physical_force = False
     )
-
-    model_energy_force.compile(
-        loss=["mean_squared_error", "mean_squared_error"],
-        optimizer=ks.optimizers.Adam(),
-        metrics=None,
-        loss_weights=[1/FORCE_LOSS_FACTOR, 1-1/FORCE_LOSS_FACTOR]
-    )
     
-    lr_schedule = ks.optimizers.schedules.CosineDecayRestarts(initial_learning_rate=1e-3, first_decay_steps=1e3, t_mul=1.5, m_mul=0.7, alpha=1e-3)
+    lr_schedule = ks.optimizers.schedules.CosineDecayRestarts(initial_learning_rate=ENERGY_INITIAL_LEARNING_RATE, first_decay_steps=1e3, t_mul=1.5, m_mul=0.7, alpha=1e-3)
     model_energy_force.compile(
         loss=["mean_squared_error", "mean_squared_error"],
         optimizer=ks.optimizers.Adam(lr_schedule),
@@ -159,7 +158,8 @@ for test_index, train_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
         loss_weights=[1/FORCE_LOSS_FACTOR, 1-1/FORCE_LOSS_FACTOR]
     )
 
-    callbacks = []
+    lrlog = callbacks.LearningRateLoggingCallback()
+    callback_list = [lrlog]
     # scheduler = LinearLearningRateScheduler(
     #     learning_rate_start=ENERGY_INITIAL_LEARNING_RATE,
     #     learning_rate_stop=ENERGY_FINAL_LEARNING_RATE,
@@ -174,12 +174,12 @@ for test_index, train_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
             patience=ENERGY_EARLY_STOPPING,
             verbose=0
         )
-        callbacks.append(earlystop)
+        callback_list.append(earlystop)
     
     start = time.process_time()
     hist = model_energy_force.fit(
         x_train, energy_force_train,
-        callbacks=callbacks,
+        callbacks=callback_list,
         validation_data=(x_test, energy_force_test),
         epochs=ENERGY_EPOCHS,
         batch_size=ENERGY_BATCH_SIZE,
@@ -197,7 +197,7 @@ with open(os.path.join("", "histories.json"), "w") as f:
 
 model_energy.summary()
 
-#scaler.inverse_transform_dataset(dataset, **scaler_mapping)
+#scaler.inverse_transform_dataset(dataset)
 true_energy = np.array(dataset[test_index].get("graph_labels")).reshape(-1,1)*constants.hartree_to_kcalmol
 true_force = np.array(dataset[test_index].get("force")).reshape(-1,1)
 predicted_energy, predicted_force = model_energy_force.predict(x_test, verbose=0)
