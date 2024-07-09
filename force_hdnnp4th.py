@@ -26,7 +26,7 @@ from kgcnn.literature.HDNNP4th import make_model_behler_charge_separat as make_m
 from kgcnn.data.transform.scaler.force import EnergyForceExtensiveLabelScaler
 from kgcnn.utils.plots import plot_predict_true, plot_train_test_loss, plot_test_set_prediction
 from kgcnn.utils.devices import set_devices_gpu
-from kgcnn.utils import constants, save_load_utils
+from kgcnn.utils import constants, save_load_utils, activations
 from kgcnn.model.force import EnergyForceModel
 from kgcnn.metrics.loss import RaggedMeanAbsoluteError, zero_loss_function
 
@@ -71,6 +71,11 @@ ENERGY_BATCH_SIZE            = 128 # Batch size during training
 ENERGY_EARLY_STOPPING        = 0 # Patience of Early Stopping. If 0, no Early Stopping, Early Stopping breaks loss history plot
 FORCE_LOSS_FACTOR            = 200 # Weight of the force loss relative to the energy loss, gets normalized
 
+# SCALER PARAMETERS
+USE_SCALER = True # If True, the scaler will be used
+SCALER_PATH = "scaler.json" # None if no scaler is used
+STANDARDIZE_SCALE = True # If True, the scaler will standardize the energy labels and force labels accordingly
+
 def load_data(data_directory: str, dataset_name: str) -> MemoryGraphDataset:
     dataset = MemoryGraphDataset(data_directory=data_directory, dataset_name=dataset_name)
     dataset.load()
@@ -110,12 +115,14 @@ def train_model(dataset: MemoryGraphDataset,
 
     model_prefix = train_config["model_prefix"]
 
-    # # Scaling energy and forces.
-    # scaler = EnergyForceExtensiveLabelScaler(standardize_coordinates = False,
-    #  energy= "graph_labels", force = "force", atomic_number = "node_number",
-    #  sample_weight = None)
-    # scaler.fit_transform_dataset(dataset)
-    scaler = None
+    # Scaling energy and forces.
+    if USE_SCALER:
+        scaler = EnergyForceExtensiveLabelScaler(standardize_scale=STANDARDIZE_SCALE, standardize_coordinates = False,
+            energy= "graph_labels", force = "force", atomic_number = "node_number", sample_weight = None)
+        scaler.fit_transform_dataset(dataset)
+        scaler.save(SCALER_PATH)
+    else:
+        scaler = None
 
     N_SPLITS = 3 # Used to determine amount of splits in training
     kf = KFold(n_splits=N_SPLITS, random_state=42, shuffle=True)
@@ -228,7 +235,6 @@ def train_model(dataset: MemoryGraphDataset,
         test_indices.append(test_index)
         model_energy_force.save(model_prefix+str(model_index))
         model_index += 1
-        break
 
     save_load_utils.save_history(charge_hists, filename="charge_histories.pkl")
     save_load_utils.save_history(hists, filename="histories.pkl")
@@ -246,7 +252,7 @@ def evaluate_model(dataset: MemoryGraphDataset,
     x_test = dataset[test_index].tensor(model_config["inputs"])
     predicted_charge, predicted_energy, predicted_force = model_energy_force.predict(x_test, batch_size=ENERGY_BATCH_SIZE, verbose=0)
     
-    if scaler is not None:
+    if USE_SCALER:
         scaler.inverse_transform_dataset(dataset)
         predicted_energy, predicted_force = scaler.inverse_transform(
         y=(predicted_energy.flatten(), predicted_force), X=dataset[test_index].get("node_number"))
@@ -381,6 +387,10 @@ if __name__ == "__main__":
         ENERGY_BATCH_SIZE            = config_data.get("ENERGY_BATCH_SIZE", ENERGY_BATCH_SIZE)
         ENERGY_EARLY_STOPPING        = config_data.get("ENERGY_EARLY_STOPPING", ENERGY_EARLY_STOPPING)
         FORCE_LOSS_FACTOR            = config_data.get("FORCE_LOSS_FACTOR", FORCE_LOSS_FACTOR)
+    
+        USE_SCALER = config_data.get("USE_SCALER", USE_SCALER)
+        SCALER_PATH = config_data.get("SCALER_PATH", SCALER_PATH)
+        STANDARDIZE_SCALE = config_data.get("STANDARDIZE_SCALE", STANDARDIZE_SCALE)
 
     model_config = {
         "name": "HDNNP4th",
@@ -397,10 +407,10 @@ if __name__ == "__main__":
         "normalize_kwargs": {},
         "mlp_charge_kwargs": {"units": CHARGE_HIDDEN_LAYERS+[1],
                             "num_relations": MAX_ELEMENTS,
-                            "activation": CHARGE_HIDDEN_ACTIVATION+["linear"]},
+                            "activation": [lambda x: activations.custom_activation(x, charge_activation) for charge_activation in CHARGE_HIDDEN_ACTIVATION]+["linear"]},
         "mlp_local_kwargs": {"units": ENERGY_HIDDEN_LAYERS+[1],
                             "num_relations": MAX_ELEMENTS,
-                            "activation": ENERGY_HIDDEN_ACTIVATION+["linear"]},
+                            "activation":  [lambda x: activations.custom_activation(x, energy_activation) for energy_activation in ENERGY_HIDDEN_ACTIVATION]+["linear"]},
         "cent_kwargs": {},
         "electrostatic_kwargs": {"name": "electrostatic_layer",
                                 "use_physical_params": True,

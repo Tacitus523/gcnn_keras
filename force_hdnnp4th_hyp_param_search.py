@@ -25,7 +25,7 @@ from kgcnn.data.qm import QMDataset
 from kgcnn.training.scheduler import LinearLearningRateScheduler
 from kgcnn.literature.HDNNP4th import make_model_behler_charge_separat as make_model
 from kgcnn.data.transform.scaler.force import EnergyForceExtensiveLabelScaler
-from kgcnn.utils import constants, callbacks
+from kgcnn.utils import constants, callbacks, activations
 from kgcnn.utils.data_splitter import idx_generator
 from kgcnn.utils.devices import set_devices_gpu
 from kgcnn.utils.plots import plot_predict_true, plot_train_test_loss, plot_test_set_prediction
@@ -81,33 +81,9 @@ ENERGY_BATCH_SIZE            = 128 # Batch size during training
 ENERGY_EARLY_STOPPING        = 10 # Patience of Early Stopping. If 0, no Early Stopping, Early Stopping breaks loss history plot
 FORCE_LOSS_FACTOR            = 200 # Weight of the force loss relative to the energy loss, gets normalized
 
-# Define a custom Swish activation function, Tensorflow one has problems with saving custom gradients
-def swish(x):
-    return x * tf.sigmoid(x)
-
-# Define Leaky ReLU as a custom activation function
-def leaky_relu(x):
-    return tf.keras.activations.relu(x, alpha=0.2)
-
-# Wrapper function to select activation dynamically
-def custom_activation(x, activation):
-    if activation == 'swish':
-        return swish(x)
-    elif activation == 'leaky_relu':
-        return leaky_relu(x)
-    elif activation == 'relu':
-        return relu(x)
-    elif activation == 'tanh':
-        return tanh(x)
-    elif activation == 'elu':
-        return elu(x)
-    elif activation == 'selu':
-        return selu(x)
-    else:
-        raise ValueError(f"Unsupported activation: {activation}")
-
 class MyRandomTuner(kt.RandomSearch):
     def run_trial(self, trial, **kwargs):
+        ks.backend.clear_session() # RAM is apparently not released between trials. This should clear some of it, but probably not all. https://github.com/keras-team/keras-tuner/issues/395
         dataset = kwargs.get('dataset')
         if dataset is None:
             raise ValueError("Dataset must be provided")
@@ -168,7 +144,7 @@ class MyRandomTuner(kt.RandomSearch):
         charge_layers.append(1)
 
         charge_activation = hp.Choice("charge_activation", ["relu", "tanh", "elu", "selu", "swish", "leaky_relu"])
-        charge_activations = [lambda x: custom_activation(x, charge_activation)]*charge_n_layers + ["linear"]
+        charge_activations = [lambda x: activations.custom_activation(x, charge_activation)]*charge_n_layers + ["linear"]
 
         energy_n_layers = hp.Int("energy_n_layers", 1, 3, 1)
         energy_layers = []
@@ -180,7 +156,7 @@ class MyRandomTuner(kt.RandomSearch):
         energy_layers.append(1)
 
         energy_activation = hp.Choice("energy_activation", ["relu", "tanh", "elu", "selu", "swish", "leaky_relu"])
-        energy_activations = [lambda x: custom_activation(x, energy_activation)]*energy_n_layers + ["linear"]
+        energy_activations = [lambda x: activations.custom_activation(x, energy_activation)]*energy_n_layers + ["linear"]
 
         max_elements = build_config["max_elements"]
         elemental_mapping = build_config["elemental_mapping"]
@@ -274,22 +250,20 @@ class MyHyperModel(kt.HyperModel):
         energy_layers.append(1)
 
         energy_activation = hp.Choice("energy_activation", ["relu", "tanh"])
-        energy_activations = [lambda x: custom_activation(x, energy_activation)]*energy_n_layers + ["linear"]
+        energy_activations = [lambda x: activations.custom_activation(x, energy_activation)]*energy_n_layers + ["linear"]
 
-        max_elements = 30
-        elemental_mapping = [1, 6, 7, 8]
         model_config = {
             "name": "HDNNP4th",
             "inputs": INPUT_CONFIG,
-            "g2_kwargs": {"eta": eta_array, "rs": Rs_array, "rc": cutoff_rad, "elements": elemental_mapping},
+            "g2_kwargs": {"eta": eta_array, "rs": Rs_array, "rc": cutoff_rad, "elements": ELEMENTAL_MAPPING},
             "g4_kwargs": {"eta": eta_ang_array, "zeta": zeta_array, "lamda": lambd_array, "rc": cutoff_ang, 
-                          "elements": elemental_mapping, "multiplicity": 2.0},
+                          "elements": ELEMENTAL_MAPPING, "multiplicity": 2.0},
             "normalize_kwargs": {},
             "mlp_charge_kwargs": {"units": charge_layers,
-                                "num_relations": max_elements,
+                                "num_relations": MAX_ELEMENTS,
                                 "activation": charge_activations},
             "mlp_local_kwargs": {"units": energy_layers,
-                                "num_relations": max_elements,
+                                "num_relations": MAX_ELEMENTS,
                                 "activation": energy_activations},
             "cent_kwargs": {},
             "electrostatic_kwargs": {"name": "electrostatic_layer",
