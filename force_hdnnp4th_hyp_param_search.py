@@ -238,7 +238,7 @@ class MyHyperModel(kt.HyperModel):
         charge_layers.append(1)
 
         charge_activation = hp.Choice("charge_activation", ["relu", "tanh", "elu", "selu", "swish", "leaky_relu"])
-        charge_activations = [lambda x: custom_activation(x, charge_activation)]*charge_n_layers + ["linear"]
+        charge_activations = [lambda x: activations.custom_activation(x, charge_activation)]*charge_n_layers + ["linear"]
 
         energy_n_layers = hp.Int("energy_n_layers", 2, 2, 1)
         energy_layers = []
