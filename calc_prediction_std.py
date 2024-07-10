@@ -24,22 +24,25 @@ from kgcnn.utils.plots import plot_predict_true
 from kgcnn.utils import constants
 from kgcnn.utils.devices import set_devices_gpu
 
-model_paths = [
+MODEL_PATHS = [
     "model_energy_force_painn0",
     "model_energy_force_painn1",
     "model_energy_force_painn2"
 ]
 
-#data_directory="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_water"
-#data_directory="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_vacuum"
-# data_directory="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/07_vacuum_sampling_retry/adaptive_sampling/current_training_data"
-# dataset_name="ThiolDisulfidExchange"
-data_directory="/lustre/work/ws/ws1/ka_he8978-dipeptide/training_data/B3LYP_aug-cc-pVTZ_vacuum"
-# data_directory="/lustre/work/ws/ws1/ka_he8978-dipeptide/training_data/B3LYP_aug-cc-pVTZ_water"
-dataset_name="Alanindipeptide"
+# DATA_DIRECTORY="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_water"
+# DATA_DIRECTORY="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_vacuum"
+# DATA_DIRECTORY="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/07_vacuum_sampling_retry/adaptive_sampling/current_training_data"
+DATA_DIRECTORY="/lustre/work/ws/ws1/ka_he8978-dipeptide/training_data/B3LYP_aug-cc-pVTZ_vacuum"
+# DATA_DIRECTORY="/lustre/work/ws/ws1/ka_he8978-dipeptide/training_data/B3LYP_aug-cc-pVTZ_water"
+# DATASET_NAME="ThiolDisulfidExchange"
+DATASET_NAME="Alanindipeptide"
 
-file_name=f"{dataset_name}.csv"
-print("Dataset:", os.path.join(data_directory, file_name))
+USE_SCALER = True
+SCALER_PATH = "scaler.json"
+
+file_name=f"{DATASET_NAME}.csv"
+print("Dataset:", os.path.join(DATA_DIRECTORY, file_name))
 
 # Ability to restrict the model to only use a certain GPU, which is passed with python -g gpu_id
 ap = argparse.ArgumentParser(description="Handle gpu_ids")
@@ -48,7 +51,7 @@ args = ap.parse_args()
 if args.gpuid is not None:
     set_devices_gpu([args.gpuid])
 
-dataset = MemoryGraphDataset(data_directory=data_directory, dataset_name=dataset_name)
+dataset = MemoryGraphDataset(data_directory=DATA_DIRECTORY, dataset_name=DATASET_NAME)
 dataset.load()
 #dataset=dataset[:10]
 
@@ -68,7 +71,7 @@ outputs = [
 ]
 charge_output = {"name": "charge", "shape": (None, 1), "ragged": True}
 
-models = [tf.keras.models.load_model(model_path, compile=False) for model_path in model_paths]
+models = [tf.keras.models.load_model(model_path, compile=False) for model_path in MODEL_PATHS]
 
 #predicted_charges = []
 predicted_energies, predicted_forces = [], []
@@ -82,6 +85,15 @@ for model in models:
     predicted_forces.append(predicted_force)
 
 del models
+
+if USE_SCALER:
+    scaler = EnergyForceExtensiveLabelScaler()
+    scaler.load(SCALER_PATH)
+    for index,(predicted_energy, predicted_force) in enumerate(zip(predicted_energies, predicted_forces)):
+        predicted_energy, predicted_force = scaler.inverse_transform(
+            y=(predicted_energy.flatten(), predicted_force), X=dataset.get("node_number"))
+        predicted_energies[index] = predicted_energy
+        predicted_forces[index] = predicted_force
  
 #predicted_charges = tf.stack(predicted_charges, axis=0) # shape(n_models,n_molecules,n_atoms,1)
 predicted_energies = tf.stack(predicted_energies, axis=0) # shape(n_models,n_molecules)

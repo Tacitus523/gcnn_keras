@@ -25,7 +25,6 @@ from kgcnn.utils import constants
 #model_paths = ["model_energy_force0"]
 model_paths = ["model_energy_force_painn0"]
 # model_paths = ["../../../model_energy_force0", "../../../model_energy_force1", "../../../model_energy_force2"]
-scaler_path = "scaler.json" # None if no scaler is used
 
 #data_directory="/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_combined/"
 #data_directory="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_water"
@@ -35,6 +34,9 @@ data_directory="/lustre/work/ws/ws1/ka_he8978-dipeptide/training_data/B3LYP_aug-
 
 #dataset_name="ThiolDisulfidExchange"
 dataset_name="Alanindipeptide"
+
+use_scaler = False
+scaler_path = "scaler.json"
 
 file_name=f"{dataset_name}.csv"
 print("Dataset:", os.path.join(data_directory, file_name))
@@ -64,10 +66,6 @@ models = [tf.keras.models.load_model(model_path, compile=False) for model_path i
 
 models[0].summary()
 
-scaler = EnergyForceExtensiveLabelScaler()
-scaler.load("example.json")
-scaler.fit_transform_dataset(dataset)
-
 kf = KFold(n_splits=3, random_state=42, shuffle=True)
 
 for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("graph_labels")), axis=-1)): 
@@ -76,7 +74,12 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
     predicted_energy, predicted_force= models[0].predict(dataset[test_index].tensor(input_configs), batch_size=128, verbose=2)
     break
 
-#scaler.inverse_transform_dataset(dataset, **scaler_mapping)
+if use_scaler:
+    scaler = EnergyForceExtensiveLabelScaler()
+    scaler.load(scaler_path)
+    predicted_energy, predicted_force = scaler.inverse_transform(
+        y=(predicted_energy.flatten(), predicted_force), X=dataset[test_index].get("node_number"))
+
 #true_charge = np.array(dataset[test_index].get("charge")).reshape(-1,1)
 true_energy = np.array(dataset[test_index].get("graph_labels")).reshape(-1,1)*constants.hartree_to_kcalmol
 true_force = np.array(dataset[test_index].get("force")).reshape(-1,1)
@@ -85,10 +88,10 @@ true_force = np.array(dataset[test_index].get("force")).reshape(-1,1)
 predicted_energy = np.array(predicted_energy).reshape(-1,1)*constants.hartree_to_kcalmol
 predicted_force = np.array(predicted_force).reshape(-1,1)
 
-plot_predict_true(predicted_charge, true_charge,
-    filepath="", data_unit="e",
-    model_name="HDNNP", dataset_name=dataset_name, target_names="Charge",
-    error="RMSE", file_name=f"predict_charge_full_dataset.png", show_fig=False)
+# plot_predict_true(predicted_charge, true_charge,
+#     filepath="", data_unit="e",
+#     model_name="HDNNP", dataset_name=dataset_name, target_names="Charge",
+#     error="RMSE", file_name=f"predict_charge_full_dataset.png", show_fig=False)
 
 plot_predict_true(predicted_energy, true_energy,
     filepath="", data_unit=r"$\frac{kcal}{mol}$",
