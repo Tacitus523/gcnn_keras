@@ -22,26 +22,26 @@ from kgcnn.model.force import EnergyForceModel
 from kgcnn.utils.plots import plot_predict_true
 from kgcnn.utils import constants
 
-#model_paths = ["model_energy_force0"]
-model_paths = ["model_energy_force_painn0"]
-# model_paths = ["../../../model_energy_force0", "../../../model_energy_force1", "../../../model_energy_force2"]
+# MODEL_PATHS = ["model_energy_force0"]
+# MODEL_PATHS = ["model_energy_force_painn0"]
+MODEL_PATHS = ["../../../model_energy_force0", "../../../model_energy_force1", "../../../model_energy_force2"]
 
-#data_directory="/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_combined/"
-#data_directory="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_water"
-#data_directory="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_vacuum"
-#data_directory="/lustre/work/ws/ws1/ka_he8978-dipeptide/training_data/B3LYP_aug-cc-pVTZ_water"
-data_directory="/lustre/work/ws/ws1/ka_he8978-dipeptide/training_data/B3LYP_aug-cc-pVTZ_vacuum"
+#DATA_DIRECTORY = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_combined/"
+#DATA_DIRECTORY = "/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_water"
+#DATA_DIRECTORY = "/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_vacuum"
+#DATA_DIRECTORY = "/lustre/work/ws/ws1/ka_he8978-dipeptide/training_data/B3LYP_aug-cc-pVTZ_water"
+DATA_DIRECTORY = "/lustre/work/ws/ws1/ka_he8978-dipeptide/training_data/B3LYP_aug-cc-pVTZ_vacuum"
 
-#dataset_name="ThiolDisulfidExchange"
-dataset_name="Alanindipeptide"
+#DATASET_NAME = "ThiolDisulfidExchange"
+DATASET_NAME = "Alanindipeptide"
 
-use_scaler = False
-scaler_path = "scaler.json"
+USE_SCALER = False
+SCALER_PATH = "scaler.json"
 
-file_name=f"{dataset_name}.csv"
-print("Dataset:", os.path.join(data_directory, file_name))
+file_name=f"{DATASET_NAME}.csv"
+print("Dataset:", os.path.join(DATA_DIRECTORY, file_name))
 
-dataset = MemoryGraphDataset(data_directory=data_directory, dataset_name=dataset_name)
+dataset = MemoryGraphDataset(data_directory=DATA_DIRECTORY, dataset_name=DATASET_NAME)
 dataset.load()
 #dataset=dataset[:10]
 np.set_printoptions(precision=5)
@@ -62,7 +62,7 @@ output_configs = [
 ]
 charge_output = {"name": "charge", "shape": (None, 1), "ragged": True}
 
-models = [tf.keras.models.load_model(model_path, compile=False) for model_path in model_paths]
+models = [tf.keras.models.load_model(model_path, compile=False) for model_path in MODEL_PATHS]
 
 models[0].summary()
 
@@ -74,9 +74,9 @@ for train_index, test_index in kf.split(X=np.expand_dims(np.array(dataset.get("g
     predicted_energy, predicted_force= models[0].predict(dataset[test_index].tensor(input_configs), batch_size=128, verbose=2)
     break
 
-if use_scaler:
+if USE_SCALER:
     scaler = EnergyForceExtensiveLabelScaler()
-    scaler.load(scaler_path)
+    scaler.load(SCALER_PATH)
     predicted_energy, predicted_force = scaler.inverse_transform(
         y=(predicted_energy.flatten(), predicted_force), X=dataset[test_index].get("node_number"))
 
@@ -95,10 +95,10 @@ predicted_force = np.array(predicted_force).reshape(-1,1)
 
 plot_predict_true(predicted_energy, true_energy,
     filepath="", data_unit=r"$\frac{kcal}{mol}$",
-    model_name="HDNNP", dataset_name=dataset_name, target_names="Energy",
+    model_name="HDNNP", dataset_name=DATASET_NAME, target_names="Energy",
     error="RMSE", file_name=f"predict_energy_full_dataset.png", show_fig=False)
 
 plot_predict_true(predicted_force, true_force,
     filepath="", data_unit="Eh/B",
-    model_name="HDNNP", dataset_name=dataset_name, target_names="Force",
+    model_name="HDNNP", dataset_name=DATASET_NAME, target_names="Force",
     error="RMSE", file_name=f"predict_force_full_dataset.png", show_fig=False)

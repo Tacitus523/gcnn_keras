@@ -22,25 +22,27 @@ from kgcnn.model.force import EnergyForceModel
 from kgcnn.utils.plots import plot_predict_true
 from kgcnn.utils import constants
 
-#model_paths = ["model_energy_force0"]
-#model_paths = ["../../../model_energy_force0", "../../../model_energy_force1", "../../../model_energy_force2"]
-model_paths = ["../../../model_energy_force_painn0", "../../../model_energy_force_painn1", "../../../model_energy_force_painn2"]
+#MODEL_PATHS = ["model_energy_force0"]
+#MODEL_PATHS = ["../../../model_energy_force0", "../../../model_energy_force1", "../../../model_energy_force2"]
+MODEL_PATHS = ["../../../model_energy_force_painn0", "../../../model_energy_force_painn1", "../../../model_energy_force_painn2"]
 
-#data_directory="/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_combined/"
-#data_directory="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_water"
-#data_directory="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_vacuum"
-#data_directory="/lustre/work/ws/ws1/ka_he8978-dipeptide/training_data/B3LYP_aug-cc-pVTZ_water"
-data_directory="/lustre/work/ws/ws1/ka_he8978-dipeptide/training_data/B3LYP_aug-cc-pVTZ_vacuum"
+#DATA_DIRECTORY = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_combined/"
+#DATA_DIRECTORY = "/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_water"
+#DATA_DIRECTORY = "/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_vacuum"
+#DATA_DIRECTORY = "/lustre/work/ws/ws1/ka_he8978-dipeptide/training_data/B3LYP_aug-cc-pVTZ_water"
+DATA_DIRECTORY = "/lustre/work/ws/ws1/ka_he8978-dipeptide/training_data/B3LYP_aug-cc-pVTZ_vacuum"
 
-#dataset_name="ThiolDisulfidExchange"
-dataset_name="Alanindipeptide"
+#DATASET_NAME = "ThiolDisulfidExchange"
+DATASET_NAME = "Alanindipeptide"
 
-file_name=f"{dataset_name}.csv"
-print("Dataset:", os.path.join(data_directory, file_name))
+USE_SCALER = True
+SCALER_PATH = "../../../scaler.json"
 
-dataset = MemoryGraphDataset(data_directory=data_directory, dataset_name=dataset_name)
+file_name=f"{DATASET_NAME}.csv"
+print("Dataset:", os.path.join(DATA_DIRECTORY, file_name))
+
+dataset = MemoryGraphDataset(data_directory=DATA_DIRECTORY, dataset_name=DATASET_NAME)
 dataset.load()
-#dataset=dataset[:10]
 np.set_printoptions(precision=5)
 
 input_configs = [{"shape": (None,), "name": "node_number", "dtype": "int64", "ragged": True},
@@ -53,13 +55,9 @@ output_configs = [
     {"name": "force", "shape": (None, 3), "ragged": True}
 ]
 
-models = [tf.keras.models.load_model(model_path, compile=False) for model_path in model_paths]
+models = [tf.keras.models.load_model(model_path, compile=False) for model_path in MODEL_PATHS]
 
 models[0].summary()
-
-# scaler = EnergyForceExtensiveLabelScaler()
-# scaler_mapping = {"atomic_number": "node_number", "y": ["graph_labels", "force"]}
-# scaler.fit_transform_dataset(dataset, **scaler_mapping)
 
 elements = np.loadtxt("input_00.txt", dtype=np.int64)
 geom = np.loadtxt("input_02.txt", dtype=np.float32)
@@ -72,7 +70,7 @@ n_atoms = len(elements)
 energy = np.array(outputs[0], dtype=np.float32)
 forces = np.array([line.split() for line in outputs[1:]], dtype=np.float32)
 
-data_point = dataset[0]
+data_point = dataset[0].copy()
 data_point.set("node_number", elements)
 data_point.set("node_coordinates", geom)
 data_point.set("range_indices", bond_indices)
@@ -89,16 +87,21 @@ input_distances = distance_matrix(input_geom, input_geom)
 outputs_models = []
 for model in models:
     outputs_model = model.predict(input_tensor, verbose=2)
+    if USE_SCALER:
+        scaler = EnergyForceExtensiveLabelScaler()
+        scaler.load(SCALER_PATH)
+        outputs_model = scaler.inverse_transform(
+            y=outputs_model, X=dataset[test_index].get("node_number"))
     outputs_model = [np.array(output).reshape(-1,1) for output in outputs_model]
     outputs_models.append(outputs_model)
 
 predicted_energies, predicted_forces = [np.stack(outputs, axis=0) for outputs in zip(*outputs_models)]
-print(predicted_energies.shape, predicted_forces.shape)
+print("Predicted shapes:", predicted_energies.shape, predicted_forces.shape)
 true_energy, true_force = [
     np.array(output.to_list()).reshape(-1,1) if isinstance(output, tf.RaggedTensor)
     else output.numpy().reshape(-1,1)
     for output in dataset[test_index].tensor(output_configs)]
-print(true_energy.shape, true_force.shape)
+print("True Shapes:", true_energy.shape, true_force.shape)
 
 with open("adaptive_sampling.gro", "r") as f:
     lines = f.readlines()
@@ -115,12 +118,12 @@ else:
     starting_structure_idx = None
 
 if starting_structure_idx is not None:
-    print("-----------------Input assertion--------------------------")
     starting_inputs = dataset[starting_structure_idx].tensor(input_configs)
     starting_geom = np.array(dataset[starting_structure_idx[0]].get("node_coordinates"))
     starting_distances = distance_matrix(starting_geom, starting_geom)
     true_true_energy = np.array(dataset[starting_structure_idx].get("graph_labels"))
     true_true_force = np.array(dataset[starting_structure_idx].get("force"))
+    print("-----------------Input assertion--------------------------")
     for input_config, starting_input, calc_input in zip(input_configs, starting_inputs, input_tensor):
         try:
             if input_config["name"] == "node_coordinates":
@@ -144,16 +147,20 @@ if starting_structure_idx is not None:
                 raise
     print("Input Assertions passed")
 print("------------------Output assertion-------------------------")
-predicted_energy, predicted_force = [output[0] for output in [predicted_energies, predicted_forces]]
+predicted_energy, predicted_force = [output[0] for output in [predicted_energies, predicted_forces]] # outputs of the first model
 try:
     assert np.allclose(predicted_energy, true_energy, atol=1e-05), "Energy Assertion failed"
-    assert np.allclose(predicted_force, true_force, atol=1e-04), "Force Assertion failed"
 except AssertionError:
     print("Energy")
     print(predicted_energy)
     print(true_energy)
     if starting_structure_idx is not None:
         print(true_true_energy)
+    raise
+
+try:
+    assert np.allclose(predicted_force, true_force, atol=1e-04), "Force Assertion failed"
+except AssertionError:
     print("Force")
     print(predicted_force.reshape(1,-1,3))
     print(true_force.reshape(1,-1,3))
@@ -177,6 +184,7 @@ except AssertionError as e:
     print(e)
     print(energy_mean)
     print(qm_mlmm_energy_mean)
+    raise
 
 try:
     assert np.allclose(energy_std, qm_mlmm_energy_std, atol=1e-05), "Energy Std Assertion failed"
@@ -184,6 +192,7 @@ except AssertionError as e:
     print(e)
     print(energy_std)
     print(qm_mlmm_energy_std)
+    raise
 
 try:
     assert np.allclose(force_mean.reshape(-1,3), qm_mlmm_force_mean, atol=1e-04), "Force Mean Assertion failed"
@@ -191,6 +200,7 @@ except AssertionError as e:
     print(e)
     print(force_mean.reshape(-1,3))
     print(qm_mlmm_force_mean)
+    raise
 
 try:
     assert np.allclose(force_std.reshape(-1,3), qm_mlmm_force_std, atol=1e-04), "Force Std Assertion failed"
@@ -198,5 +208,6 @@ except AssertionError as e:
     print(e)
     print(force_std.reshape(-1,3))
     print(qm_mlmm_force_std)
+    raise
 
 print("Std Assertions passed")
