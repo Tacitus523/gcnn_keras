@@ -49,3 +49,4 @@ output_scaler.py
 test_notebook.ipynb
 force_DimeNetPP.py
 force_DMPNN.py
+playground/
