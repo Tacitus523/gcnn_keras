@@ -20,7 +20,8 @@ AT_COUNT = 15 # atom count, used if no charges supplied
 CUTOFF = 10.0 # Max distance for bonds and angles to be considered relevant, None if not available, in Angstrom, default 10, CONSIDER CUTOFF IN YOUR SYMMETRY FUNCTIONS
 MAX_NEIGHBORS = 25 # Maximal neighbors per atom to be considered relevant, disregards neighbors within cutoff distance if too small
 FORCE_FILE = "forces.xyz" # path to force-file, "" if not available, in Eh/Bohr, apparently given like that from Orca
-TOTAL_CHARGE = -1 # total charge of molecule, None if not available, different charges not supported
+# TOTAL_CHARGE = -1 # total charge of molecule, None if not available, different charges not supported
+TOTAL_CHARGE = None # Calculated from charges.txt
 PREFIX = "ThiolDisulfidExchange" # prefix to generated files, compulsary for kgcnn read-in
 TARGET_FOLDER = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_water/test" # target folder to save the data
 
@@ -50,9 +51,12 @@ if config_path is not None:
     CUTOFF = float(config_data.get("CUTOFF", CUTOFF))
     MAX_NEIGHBORS = int(config_data.get("MAX_NEIGHBORS", MAX_NEIGHBORS))
     FORCE_FILE = config_data.get("FORCE_FILE", FORCE_FILE)
-    TOTAL_CHARGE = int(config_data.get("TOTAL_CHARGE", TOTAL_CHARGE))
     PREFIX = config_data.get("PREFIX", PREFIX)
     TARGET_FOLDER = config_data.get("TARGET_FOLDER", TARGET_FOLDER)
+
+    TOTAL_CHARGE = config_data.get("TOTAL_CHARGE", TOTAL_CHARGE)
+    if TOTAL_CHARGE is not None:
+        print("INFO: Giving total charge as directly as input is deprecated. Using charge-file instead.")
 
 # Supress tensorflow info-messages and warnings
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
@@ -79,21 +83,20 @@ def copy_data(geometry_path: str, charge_path: str, esp_path: str, esp_grad_path
     if os.path.abspath(force_path) != os.path.abspath(target_force_path):
         shutil.copyfile(force_path, target_force_path)
 
-
-def make_and_write_csv(energy_path: str, total_charge: int, prefix: str, target_path: str) -> None:
-    """prepares the csv for fourth generation HDNNP
+def make_and_write_csv(energy_path: str, total_charge: np.ndarray | None, prefix: str, target_path: str) -> None:
+    """Prepares the csv for fourth generation HDNNP
 
     Args:
         energy_path (str): path to energy-file, no header, separated by new lines
-        total_charge (int): total charge of molecule, different charges not supported
+        total_charge (np.ndarray): total charge of molecule
         target_path (str): target folder to save the data
     """
     df = pd.read_csv(energy_path, names=["energy"])
     if total_charge is not None:
-        df["total_charge"] = np.ones_like(df["energy"], dtype=float)*total_charge
+        df["total_charge"] = total_charge
         df.to_csv(join(target_path,f"{prefix}.csv"), index=False, header=True, sep=',')
     
-def prepare_kgcnn_dataset(data_directory: str, dataset_name: str, cutoff: float) -> None:
+def prepare_kgcnn_dataset(data_directory: str, energy_path: str, dataset_name: str, cutoff: float) -> None:
     file_name=f"{dataset_name}.csv"
     
     dataset = QMDataset(data_directory=data_directory, file_name=file_name, dataset_name=dataset_name)
@@ -114,10 +117,12 @@ def prepare_kgcnn_dataset(data_directory: str, dataset_name: str, cutoff: float)
         for i in range(len(dataset)):
             dataset[i].set("charge", charges[i])
         at_count = charges.shape[1]
+        total_charge = np.sum(charges, axis=1)
         print("Got Charges")
     except FileNotFoundError:
         print("No Charges")
         at_count = AT_COUNT
+        total_charge = None
 
     #TODO: Indicator for molecule end in forces file
     force_path = os.path.join(os.path.normpath(os.path.dirname(dataset.file_path)), "forces.xyz")
@@ -153,7 +158,8 @@ def prepare_kgcnn_dataset(data_directory: str, dataset_name: str, cutoff: float)
         for i in range(len(dataset)):
             dataset[i].set("esp_grad", np.zeros_like(dataset[i]["node_coordinates"], dtype=np.float64))
         print("No ESP Gradient")
-        
+    
+    make_and_write_csv(energy_path=energy_path, total_charge=total_charge, prefix=dataset_name, target_path=data_directory)
     dataset.save()
 
 if __name__ == "__main__":
@@ -174,8 +180,8 @@ if __name__ == "__main__":
 
     if CUTOFF is None:
         CUTOFF = 10.0
+        print("Cutoff not given, using default value of 10.0 Angstrom")
     
     copy_data(geometry_path=geometry_path, charge_path=charge_path, esp_path=esp_path, esp_grad_path=esp_grad_path, force_path=force_path, prefix=PREFIX, target_path=TARGET_FOLDER)
-    make_and_write_csv(energy_path=energy_path, total_charge=TOTAL_CHARGE, prefix=PREFIX, target_path=TARGET_FOLDER)
     
-    prepare_kgcnn_dataset(data_directory=TARGET_FOLDER, dataset_name=PREFIX, cutoff=CUTOFF)
+    prepare_kgcnn_dataset(data_directory=TARGET_FOLDER, energy_path=energy_path, dataset_name=PREFIX, cutoff=CUTOFF)
