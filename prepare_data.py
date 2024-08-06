@@ -94,7 +94,7 @@ def make_and_write_csv(energy_path: str, total_charge: np.ndarray | None, prefix
     df = pd.read_csv(energy_path, names=["energy"])
     if total_charge is not None:
         df["total_charge"] = total_charge
-        df.to_csv(join(target_path,f"{prefix}.csv"), index=False, header=True, sep=',')
+    df.to_csv(join(target_path,f"{prefix}.csv"), index=False, header=True, sep=',')
     
 def prepare_kgcnn_dataset(data_directory: str, energy_path: str, dataset_name: str, cutoff: float) -> None:
     file_name=f"{dataset_name}.csv"
