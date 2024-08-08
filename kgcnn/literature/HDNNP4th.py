@@ -274,21 +274,18 @@ def make_model_behler_charge_separat(inputs: list = None,
     local_node_energy = RelationalMLP(**mlp_local_kwargs)([rep_charge, node_input])
     eng_short = PoolingNodes(**node_pooling_args)(local_node_energy)
 
-    eng_total = ks.layers.Add()([eng_short, eng_elec, eng_qmmm])
+    eng_total = ks.layers.Add(name="energy")([eng_short, eng_elec, eng_qmmm])
 
     # Output embedding choice
     if output_embedding == 'graph' or output_embedding == 'total_energy':
         out = eng_total
         if use_output_mlp:
             out = MLP(**output_mlp)(eng_total)
-        if energy_mean_and_var:
-            out = ks.layers.Normalization(mean=energy_mean_and_var[0], variance=energy_mean_and_var[1], invert=True)(out)
     elif output_embedding == 'charge':
         out = q_local
     elif output_embedding == 'charge+qm_energy':
-        if energy_mean_and_var:
-            eng_total = ks.layers.Normalization(mean=energy_mean_and_var[0], variance=energy_mean_and_var[1], invert=True)(eng_total)
-        out = [q_local.to_tensor(), eng_total]
+        charge = ks.layers.Lambda(lambda x: x.to_tensor(), name="charge")(q_local)
+        out = [charge, eng_total]
     else:
         raise ValueError("Unsupported output embedding for mode `HDNNP4th`")
 

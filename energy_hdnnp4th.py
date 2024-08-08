@@ -2,7 +2,6 @@ import argparse
 from datetime import timedelta
 import json
 import os
-import pickle
 import time
 import warnings
 
@@ -18,23 +17,20 @@ tf.get_logger().setLevel("ERROR")
 ks=tf.keras
 print(tf.config.list_physical_devices('GPU'))
 
-from kgcnn.graph.base import GraphDict
-from kgcnn.data.base import MemoryGraphList, MemoryGraphDataset
-from kgcnn.data.qm import QMDataset
+
+from kgcnn.data.base import MemoryGraphDataset
 from kgcnn.training.scheduler import LinearLearningRateScheduler
 from kgcnn.literature.HDNNP4th import make_model_behler_charge_separat as make_model
-from kgcnn.data.transform.scaler.force import EnergyForceExtensiveLabelScaler
+from kgcnn.data.transform.scaler.mol import ExtensiveMolecularLabelScaler
 from kgcnn.utils.plots import plot_predict_true, plot_train_test_loss, plot_test_set_prediction
 from kgcnn.utils.devices import set_devices_gpu
 from kgcnn.utils import constants, save_load_utils, activations
-from kgcnn.model.force import EnergyForceModel
-from kgcnn.metrics.loss import RaggedMeanAbsoluteError, zero_loss_function
 
 # DEFAULT VALUES
 # DATA READ AND SAVE
 DATA_DIRECTORY = "/lustre/work/ws/ws1/ka_he8978-dipeptide/training_data/B3LYP_aug-cc-pVTZ_water" # Folder containing DATASET_NAME.kgcnn.pickle
 DATASET_NAME = "Alanindipeptide" # Used in naming plots and looking for data
-MODEL_PREFIX = "model_energy_force" # Will be used to save the models
+MODEL_PREFIX = "model_energy" # Will be used to save the models
 
 # SYMMETRY FUNCTION HYPER PARAMETERS
 # Radial parameters
@@ -69,12 +65,11 @@ ENERGY_HIDDEN_LAYERS         = [35, 35] # List of number of nodes per hidden lay
 ENERGY_HIDDEN_ACTIVATION     = ["tanh", "tanh"] # List of activation functions of hidden layers
 ENERGY_BATCH_SIZE            = 128 # Batch size during training
 ENERGY_EARLY_STOPPING        = 0 # Patience of Early Stopping. If 0, no Early Stopping, Early Stopping breaks loss history plot
-FORCE_LOSS_FACTOR            = 200 # Weight of the force loss relative to the energy loss, gets normalized
 
 # SCALER PARAMETERS
 USE_SCALER = True # If True, the scaler will be used
 SCALER_PATH = "scaler.json" # None if no scaler is used
-STANDARDIZE_SCALE = True # If True, the scaler will standardize the energy labels and force labels accordingly
+STANDARDIZE_SCALE = True # If True, the scaler will standardize the energy labels
 
 def load_data(data_directory: str, dataset_name: str) -> MemoryGraphDataset:
     dataset = MemoryGraphDataset(data_directory=data_directory, dataset_name=dataset_name)
@@ -93,10 +88,10 @@ def train_model(dataset: MemoryGraphDataset,
                 outputs: list[dict],
                 train_config: dict
                 ) -> tuple[
-                    EnergyForceModel,
+                    tf.keras.models.Model,
                     list[tf.keras.callbacks.History],
                     list[tf.keras.callbacks.History],
-                    EnergyForceExtensiveLabelScaler|None
+                    ExtensiveMolecularLabelScaler|None
                 ]:
     print(model_config)
 
@@ -111,14 +106,12 @@ def train_model(dataset: MemoryGraphDataset,
     energy_epochs = train_config["energy_epochs"]
     energy_early_stopping = train_config["energy_early_stopping"]
     energy_batch_size = train_config["energy_batch_size"]
-    force_loss_factor = train_config["force_loss_factor"]
 
     model_prefix = train_config["model_prefix"]
 
-    # Scaling energy and forces.
+    # Scaling energy.
     if USE_SCALER:
-        scaler = EnergyForceExtensiveLabelScaler(standardize_scale=STANDARDIZE_SCALE, standardize_coordinates = False,
-            energy= "graph_labels", force = "force", atomic_number = "node_number", sample_weight = None)
+        scaler = ExtensiveMolecularLabelScaler(standardize_scale = STANDARDIZE_SCALE, y = "graph_labels", atomic_number = "node_number", sample_weight = None)
         scaler.fit_transform_dataset(dataset)
         scaler.save(SCALER_PATH)
     else:
@@ -137,8 +130,10 @@ def train_model(dataset: MemoryGraphDataset,
         x_test = dataset[test_index].tensor(model_config["inputs"])
         charge_train = dataset[train_index].tensor(charge_output)
         charge_test = dataset[test_index].tensor(charge_output)
-        energy_force_train = dataset[train_index].tensor(outputs)
-        energy_force_test = dataset[test_index].tensor(outputs)
+        energy_train = dataset[train_index].tensor(outputs)
+        energy_test = dataset[test_index].tensor(outputs)
+        #energy_train_dict = {key: value for key, value in zip([output["name"] for output in outputs], energy_train)}
+        #energy_test_dict = {key: value for key, value in zip([output["name"] for output in outputs], energy_test)}
 
         model_charge, model_energy = make_model(**model_config)
 
@@ -185,22 +180,16 @@ def train_model(dataset: MemoryGraphDataset,
         assert "electrostatic_layer" in electrostatic_layer.name, "This is not an electrostatic_layer, double check your model"
         electrostatic_layer.trainable = False
 
-        model_energy_force: EnergyForceModel = EnergyForceModel(
-            model_energy = model_energy,
-            energy_output = 1,
-            esp_input = 5,
-            esp_grad_input = 6,
-            output_to_tensor = True,
-            output_as_dict = False,
-            output_squeeze_states = True,
-            is_physical_force = False
-        )
+        # losses = {
+        #     "charge": tf.keras.losses.MeanSquaredError(name='charge_loss'),
+        #     "graph_labels": tf.keras.losses.MeanSquaredError(name='energy_loss')
+        # }
 
-        model_energy_force.compile(
-            loss=["mean_squared_error", "mean_squared_error", "mean_squared_error"],
+        model_energy.compile(
+            loss="mean_squared_error",
+            metrics=None, 
             optimizer=ks.optimizers.Adam(),
-            metrics=None,
-            loss_weights=[0, 1/force_loss_factor, 1-1/force_loss_factor]
+            loss_weights=[0, 1]
         )
         
         callbacks=[]
@@ -221,10 +210,10 @@ def train_model(dataset: MemoryGraphDataset,
             callbacks.append(earlystop)
 
         start = time.process_time()
-        hist = model_energy_force.fit(
-            x_train, energy_force_train,
+        hist = model_energy.fit(
+            x_train, energy_train,
             callbacks=callbacks,
-            validation_data=(x_test, energy_force_test),
+            validation_data=(x_test, energy_test),
             epochs=energy_epochs,
             batch_size=energy_batch_size,
             verbose=2
@@ -234,37 +223,35 @@ def train_model(dataset: MemoryGraphDataset,
         hists.append(hist)
         train_indices.append(train_index)
         test_indices.append(test_index)
-        model_energy_force.save(model_prefix+str(model_index))
+        model_energy.save(model_prefix+str(model_index))
         model_index += 1
 
     save_load_utils.save_history(charge_hists, filename="charge_histories.pkl")
     save_load_utils.save_history(hists, filename="histories.pkl")
     save_load_utils.save_training_indices(train_indices, test_indices)
 
-    return model_energy_force, test_index, charge_hists, hists, scaler
+    return model_energy, test_index, charge_hists, hists, scaler
 
 def evaluate_model(dataset: MemoryGraphDataset,
-                   model_energy_force: EnergyForceModel,
+                   model_energy: tf.keras.models.Model,
                    test_index: np.ndarray[int],
                    charge_hists: list[tf.keras.callbacks.History],
                    hists: list[tf.keras.callbacks.History],
-                   scaler: EnergyForceExtensiveLabelScaler|None = None) -> None:
+                   scaler: ExtensiveMolecularLabelScaler|None = None) -> None:
     
     x_test = dataset[test_index].tensor(model_config["inputs"])
-    predicted_charge, predicted_energy, predicted_force = model_energy_force.predict(x_test, batch_size=ENERGY_BATCH_SIZE, verbose=0)
+    predicted_charge, predicted_energy = model_energy.predict(x_test, batch_size=ENERGY_BATCH_SIZE, verbose=0)
     
     if USE_SCALER:
         scaler.inverse_transform_dataset(dataset)
-        predicted_energy, predicted_force = scaler.inverse_transform(
-        y=(predicted_energy.flatten(), predicted_force), X=dataset[test_index].get("node_number"))
+        predicted_energy = scaler.inverse_transform(
+        y=(predicted_energy.flatten(),), X=dataset[test_index].get("node_number"))
 
     true_charge = np.array(dataset[test_index].get("charge")).reshape(-1,1)
     true_energy = np.array(dataset[test_index].get("graph_labels")).reshape(-1,1)*constants.hartree_to_kcalmol
-    true_force = np.array(dataset[test_index].get("force")).reshape(-1,1)
 
     predicted_charge = np.array(predicted_charge).reshape(-1,1)
     predicted_energy = np.array(predicted_energy).reshape(-1,1)*constants.hartree_to_kcalmol
-    predicted_force = np.array(predicted_force).reshape(-1,1)
 
     dataset_name: str = dataset.dataset_name
     plot_predict_true(predicted_charge, true_charge,
@@ -276,11 +263,6 @@ def evaluate_model(dataset: MemoryGraphDataset,
         filepath="", data_unit=r"$\frac{kcal}{mol}$",
         model_name="HDNNP", dataset_name=dataset_name, target_names="Energy",
         error="RMSE", file_name=f"predict_energy.png", show_fig=False)
-
-    plot_predict_true(predicted_force, true_force,
-        filepath="", data_unit="Eh/B",
-        model_name="HDNNP", dataset_name=dataset_name, target_names="Force",
-        error="RMSE", file_name=f"predict_force.png", show_fig=False)
 
     plot_train_test_loss(charge_hists,
         filepath="", data_unit="e",
@@ -298,20 +280,13 @@ def evaluate_model(dataset: MemoryGraphDataset,
     mae_energy  = mean_absolute_error(true_energy, predicted_energy)
     r2_energy   = r2_score(true_energy, predicted_energy)
 
-    rmse_force = mean_squared_error(true_force, predicted_force, squared=False)
-    mae_force  = mean_absolute_error(true_force, predicted_force)
-    r2_force   = r2_score(true_force, predicted_force)
-
     error_dict = {
         "RMSE Charge": f"{rmse_charge:.3f}",
         "MAE Charge": f"{mae_charge:.3f}",
         "R2 Charge": f"{r2_charge:.2f}",
         "RMSE Energy": f"{rmse_energy:.1f}",
         "MAE Energy": f"{mae_energy:.1f}",
-        "R2 Energy": f"{r2_energy:.2f}",
-        "RMSE Force": f"{rmse_force:.3f}",
-        "MAE Force": f"{mae_force:.3f}",
-        "R2 Force": f"{r2_force:.2f}"
+        "R2 Energy": f"{r2_energy:.2f}"
     }
 
     for key, value in error_dict.items():
@@ -322,19 +297,15 @@ def evaluate_model(dataset: MemoryGraphDataset,
 
     charge_df = pd.DataFrame({"charge_reference": true_charge.flatten(), "charge_prediction": predicted_charge.flatten()})
     energy_df = pd.DataFrame({"energy_reference": true_energy.flatten(), "energy_prediction": predicted_energy.flatten()})
-    force_df = pd.DataFrame({"force_reference": true_force.flatten(), "force_prediction": predicted_force.flatten()})
 
     atomic_numbers = np.array(dataset[test_index].get("node_number")).flatten()
     at_types_column = pd.Series(atomic_numbers, name="at_types").replace(constants.atomic_number_to_element)
     charge_df["at_types"] = at_types_column
-    force_df["at_types"] = at_types_column.repeat(3).reset_index(drop=True)
 
     plot_test_set_prediction(charge_df, "charge_reference", "charge_prediction",
         "Charge", "e", rmse_charge, r2_charge, "")
     plot_test_set_prediction(energy_df, "energy_reference", "energy_prediction",
         "Energy", r"$\frac{kcal}{mol}$", rmse_energy, r2_energy, "")
-    plot_test_set_prediction(force_df, "force_reference", "force_prediction",
-        "Force", r"$\frac{E_h}{B}$", rmse_force, r2_force, "")
 
 if __name__ == "__main__":
     # Ability to restrict the model to only use a certain GPU, which is passed with python -g gpu_id, or to use a config file
@@ -387,7 +358,6 @@ if __name__ == "__main__":
         ENERGY_HIDDEN_ACTIVATION     = config_data.get("ENERGY_HIDDEN_ACTIVATION", ENERGY_HIDDEN_ACTIVATION)
         ENERGY_BATCH_SIZE            = config_data.get("ENERGY_BATCH_SIZE", ENERGY_BATCH_SIZE)
         ENERGY_EARLY_STOPPING        = config_data.get("ENERGY_EARLY_STOPPING", ENERGY_EARLY_STOPPING)
-        FORCE_LOSS_FACTOR            = config_data.get("FORCE_LOSS_FACTOR", FORCE_LOSS_FACTOR)
     
         USE_SCALER = config_data.get("USE_SCALER", USE_SCALER)
         SCALER_PATH = config_data.get("SCALER_PATH", SCALER_PATH)
@@ -421,16 +391,14 @@ if __name__ == "__main__":
         "verbose": 10,
         "output_embedding": "charge+qm_energy", "output_to_tensor": True,
         "use_output_mlp": False,
-        "output_mlp": {"use_bias": [True, True], "units": [64, 1],
-                    "activation": ["swish", "linear"]}
+        "output_mlp": None
     }
 
     charge_output = {"name": "charge", "shape": (None, 1), "ragged": True}
 
     outputs = [
         {"name": "charge", "shape": (None, 1), "ragged": True},
-        {"name": "graph_labels", "ragged": False},
-        {"name": "force", "shape": (None, 3), "ragged": True}
+        {"name": "graph_labels", "ragged": False}
     ]
 
     train_config = {
@@ -444,11 +412,10 @@ if __name__ == "__main__":
         "energy_epochs": ENERGY_EPOCHS,
         "energy_early_stopping": ENERGY_EARLY_STOPPING,
         "energy_batch_size": ENERGY_BATCH_SIZE,
-        "force_loss_factor": FORCE_LOSS_FACTOR,
         "model_prefix": MODEL_PREFIX
     }
 
     dataset = load_data(DATA_DIRECTORY, DATASET_NAME)
-    model_energy_force, test_index, charge_hists, hists, scaler = train_model(dataset, model_config, charge_output, outputs, train_config)
-    model_energy_force.summary()
-    evaluate_model(dataset, model_energy_force, test_index, charge_hists, hists, scaler)
+    model_energy, test_index, charge_hists, hists, scaler = train_model(dataset, model_config, charge_output, outputs, train_config)
+    model_energy.summary()
+    evaluate_model(dataset, model_energy, test_index, charge_hists, hists, scaler)
