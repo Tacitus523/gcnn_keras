@@ -25,6 +25,17 @@ class RaggedMeanAbsoluteError(ks.losses.Loss):
     def call(self, y_true, y_pred):
         return ks.backend.mean(tf.abs(y_pred.flat_values - y_true.flat_values), axis=-1)
     
+@ks.utils.register_keras_serializable(package="kgcnn", name="RaggedMeanSquaredError")
+class RaggedMeanSquaredError(ks.losses.Loss):
+
+    def __init__(self, *args, **kwargs):
+        super(RaggedMeanSquaredError, self).__init__(*args, **kwargs)
+
+    @tf.function
+    def call(self, y_true, y_pred):
+        with tf.device("/cpu:0"):
+            return ks.backend.mean(tf.square(y_pred.flat_values - y_true.flat_values), axis=-1)
+    
 @ks.utils.register_keras_serializable(package="kgcnn", name="zero_loss_function")
 def zero_loss_function(y_true, y_pred):
     return 0
