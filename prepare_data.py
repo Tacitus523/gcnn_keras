@@ -16,7 +16,7 @@ ENERGY_FILE = "energy_diff.txt" # path to energy-file, no header, separated by n
 CHARGE_FILE = "charges.txt" # path to charge-file, one line per molecule geometry,  "" if not available, in elementary charges
 ESP_FILE = "esps_by_mm.txt" # path to esp caused by mm atoms, one line per molecule geometry, "" if not available, in V
 ESP_GRAD_FILE = "esp_gradients.txt" # path to the ESP gradients, "" if not available, in Eh/Bohr^2, I hope
-AT_COUNT = 15 # atom count, used if no charges supplied
+AT_COUNT = 15 # atom count, still used for forces and esps, which still lack universal support
 CUTOFF = 10.0 # Max distance for bonds and angles to be considered relevant, None if not available, in Angstrom, default 10, CONSIDER CUTOFF IN YOUR SYMMETRY FUNCTIONS
 MAX_NEIGHBORS = 25 # Maximal neighbors per atom to be considered relevant, disregards neighbors within cutoff distance if too small
 FORCE_FILE = "forces.xyz" # path to force-file, "" if not available, in Eh/Bohr, apparently given like that from Orca
@@ -80,8 +80,20 @@ def copy_data(geometry_path: str, charge_path: str, esp_path: str, esp_grad_path
         shutil.copyfile(esp_path, target_esp_path)
     if os.path.abspath(esp_grad_path) != os.path.abspath(target_esp_grad_path) and os.path.isfile(esp_grad_path): # ESP gradients are optional
         shutil.copyfile(esp_grad_path, target_esp_grad_path)
-    if os.path.abspath(force_path) != os.path.abspath(target_force_path):
+    if os.path.abspath(force_path) != os.path.abspath(target_force_path) and os.path.isfile(force_path): # force is optional
         shutil.copyfile(force_path, target_force_path)
+
+def read_irregular_file(file_path, conversion_factor=1.0):
+    data = []
+    with open(file_path, 'r') as file:
+        for line in file:
+            # Split the line into values
+            values = line.split()
+            # Convert values to floats, filling missing values with NaN
+            float_values = np.array([np.float64(value)*conversion_factor for value in values])
+            data.append(float_values)
+
+    return data
 
 def make_and_write_csv(energy_path: str, total_charge: np.ndarray | None, prefix: str, target_path: str) -> None:
     """Prepares the csv for fourth generation HDNNP
@@ -101,7 +113,8 @@ def prepare_kgcnn_dataset(data_directory: str, energy_path: str, dataset_name: s
     
     dataset = QMDataset(data_directory=data_directory, file_name=file_name, dataset_name=dataset_name)
     dataset.prepare_data(overwrite=True, make_sdf = True)
-    dataset.read_in_memory(label_column_name="energy", additional_callbacks = {'total_charge': lambda mg, dd: dd['total_charge']})
+    #dataset.read_in_memory(label_column_name="energy", additional_callbacks = {'total_charge': lambda mg, dd: dd['total_charge']})
+    dataset.read_in_memory(label_column_name="energy")
     
     # Coordinates in a.u.
     for i in range(len(dataset)):
@@ -113,22 +126,20 @@ def prepare_kgcnn_dataset(data_directory: str, energy_path: str, dataset_name: s
     
     charge_path = os.path.join(os.path.normpath(os.path.dirname(dataset.file_path)), "charges.txt")
     try:
-        charges = np.loadtxt(charge_path)
+        charges = read_irregular_file(charge_path)
         for i in range(len(dataset)):
             dataset[i].set("charge", charges[i])
-        at_count = charges.shape[1]
-        total_charge = np.sum(charges, axis=1)
+        total_charge = np.sum(charges[i])
         print("Got Charges")
     except FileNotFoundError:
         print("No Charges")
-        at_count = AT_COUNT
         total_charge = None
 
     #TODO: Indicator for molecule end in forces file
     force_path = os.path.join(os.path.normpath(os.path.dirname(dataset.file_path)), "forces.xyz")
     try:
         forces = np.loadtxt(force_path)
-        forces = forces.reshape((-1, at_count, 3))
+        forces = forces.reshape((-1, AT_COUNT, 3))
         for i in range(len(dataset)):
             dataset[i].set("force", forces[i])
         print("Got Forces")
@@ -138,7 +149,7 @@ def prepare_kgcnn_dataset(data_directory: str, energy_path: str, dataset_name: s
     V_to_au = 1/27.211386245988
     esp_path = os.path.join(os.path.normpath(os.path.dirname(dataset.file_path)), "esps_by_mm.txt")
     try:
-        esps = np.loadtxt(esp_path)*V_to_au
+        esps = read_irregular_file(esp_path, conversion_factor=V_to_au)
         for i in range(len(dataset)):
             dataset[i].set("esp", esps[i])
         print("Got ESP")
@@ -150,7 +161,7 @@ def prepare_kgcnn_dataset(data_directory: str, energy_path: str, dataset_name: s
     esp_grad_path = os.path.join(os.path.normpath(os.path.dirname(dataset.file_path)), "esp_gradients.txt")
     try:
         esp_grads = np.loadtxt(esp_grad_path)
-        esp_grads = esp_grads.reshape((-1, at_count, 3))
+        esp_grads = esp_grads.reshape((-1, AT_COUNT, 3))
         for i in range(len(dataset)):
             dataset[i].set("esp_grad", esp_grads[i])
         print("Got ESP Gradient")
@@ -183,5 +194,5 @@ if __name__ == "__main__":
         print("Cutoff not given, using default value of 10.0 Angstrom")
     
     copy_data(geometry_path=geometry_path, charge_path=charge_path, esp_path=esp_path, esp_grad_path=esp_grad_path, force_path=force_path, prefix=PREFIX, target_path=TARGET_FOLDER)
-    
+    make_and_write_csv(energy_path=energy_path, total_charge=None, prefix=PREFIX, target_path=TARGET_FOLDER) # Get overwritten after reading charges
     prepare_kgcnn_dataset(data_directory=TARGET_FOLDER, energy_path=energy_path, dataset_name=PREFIX, cutoff=CUTOFF)
