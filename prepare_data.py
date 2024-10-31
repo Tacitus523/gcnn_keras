@@ -127,9 +127,12 @@ def prepare_kgcnn_dataset(data_directory: str, energy_path: str, dataset_name: s
     charge_path = os.path.join(os.path.normpath(os.path.dirname(dataset.file_path)), "charges.txt")
     try:
         charges = read_irregular_file(charge_path)
+        total_charges = []
         for i in range(len(dataset)):
             dataset[i].set("charge", charges[i])
-        total_charge = np.sum(charges[i])
+            total_charge = np.sum(charges[i])
+            dataset[i].set("total_charge", total_charge)
+            total_charges.append(total_charge)
         print("Got Charges")
     except FileNotFoundError:
         print("No Charges")
@@ -170,7 +173,7 @@ def prepare_kgcnn_dataset(data_directory: str, energy_path: str, dataset_name: s
             dataset[i].set("esp_grad", np.zeros_like(dataset[i]["node_coordinates"], dtype=np.float64))
         print("No ESP Gradient")
     
-    make_and_write_csv(energy_path=energy_path, total_charge=total_charge, prefix=dataset_name, target_path=data_directory)
+    make_and_write_csv(energy_path=energy_path, total_charge=total_charges, prefix=dataset_name, target_path=data_directory)
     dataset.save()
 
 if __name__ == "__main__":

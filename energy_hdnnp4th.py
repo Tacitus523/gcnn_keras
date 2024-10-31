@@ -22,6 +22,7 @@ from kgcnn.data.base import MemoryGraphDataset
 from kgcnn.training.scheduler import LinearLearningRateScheduler
 from kgcnn.literature.HDNNP4th import make_model_behler_charge_separat as make_model
 from kgcnn.data.transform.scaler.mol import ExtensiveMolecularLabelScaler
+from kgcnn.metrics.loss import RaggedMeanSquaredError
 from kgcnn.utils.plots import plot_predict_true, plot_train_test_loss, plot_test_set_prediction
 from kgcnn.utils.devices import set_devices_gpu
 from kgcnn.utils import constants, save_load_utils, activations
@@ -79,6 +80,7 @@ def load_data(data_directory: str, dataset_name: str) -> MemoryGraphDataset:
     file_name=f"{dataset_name}.csv"
     data_directory = os.path.normpath(data_directory)
     print("Dataset:", os.path.join(data_directory, file_name))
+    print(f"Dataset size: {len(dataset)}")
     print(dataset[0].keys())
     return dataset
 
@@ -138,7 +140,7 @@ def train_model(dataset: MemoryGraphDataset,
         model_charge, model_energy = make_model(**model_config)
 
         model_charge.compile(
-            loss="mean_squared_error",
+            loss=RaggedMeanSquaredError(),
             optimizer=ks.optimizers.Adam(),
             metrics=None
         )
@@ -247,10 +249,10 @@ def evaluate_model(dataset: MemoryGraphDataset,
         predicted_energy = scaler.inverse_transform(
         y=(predicted_energy.flatten(),), X=dataset[test_index].get("node_number"))
 
-    true_charge = np.array(dataset[test_index].get("charge")).reshape(-1,1)
+    true_charge = tf.ragged.constant(dataset[test_index].get("charge")).flat_values.numpy()
     true_energy = np.array(dataset[test_index].get("graph_labels")).reshape(-1,1)*constants.hartree_to_kcalmol
 
-    predicted_charge = np.array(predicted_charge).reshape(-1,1)
+    predicted_charge = np.array(predicted_charge.flat_values)
     predicted_energy = np.array(predicted_energy).reshape(-1,1)*constants.hartree_to_kcalmol
 
     dataset_name: str = dataset.dataset_name
@@ -298,7 +300,7 @@ def evaluate_model(dataset: MemoryGraphDataset,
     charge_df = pd.DataFrame({"charge_reference": true_charge.flatten(), "charge_prediction": predicted_charge.flatten()})
     energy_df = pd.DataFrame({"energy_reference": true_energy.flatten(), "energy_prediction": predicted_energy.flatten()})
 
-    atomic_numbers = np.array(dataset[test_index].get("node_number")).flatten()
+    atomic_numbers = tf.ragged.constant(dataset[test_index].get("node_number")).flat_values.numpy()
     at_types_column = pd.Series(atomic_numbers, name="at_types").replace(constants.atomic_number_to_element)
     charge_df["at_types"] = at_types_column
 
@@ -394,11 +396,11 @@ if __name__ == "__main__":
         "output_mlp": None
     }
 
-    charge_output = {"name": "charge", "shape": (None, 1), "ragged": True}
+    charge_output = {"name": "charge", "shape": (None, 1), "dtype": "float32", "ragged": True}
 
     outputs = [
-        {"name": "charge", "shape": (None, 1), "ragged": True},
-        {"name": "graph_labels", "ragged": False}
+        {"name": "charge", "shape": (None, 1), "dtype": "float32", "ragged": True},
+        {"name": "graph_labels", "shape": (1,), "dtype": "float32", "ragged": False}
     ]
 
     train_config = {
