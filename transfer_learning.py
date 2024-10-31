@@ -65,13 +65,14 @@ dataset.load()
 inputs = [{"shape": (None,), "name": "node_number", "dtype": "int64", "ragged": True},
           {"shape": (None, 3), "name": "node_coordinates", "dtype": "float32", "ragged": True},
           {"shape": (None, 2), "name": "range_indices", "dtype": "int64", "ragged": True},
-          {"shape": (None, 3), "name": "angle_indices_nodes", "dtype": "int64", "ragged": True},
-          {"shape": (1,), "name": "total_charge", "dtype": "float32", "ragged": False},
-          {"shape": (None,), "name": "esp", "dtype": "float32", "ragged": True},
-          {"shape": (None, 3), "name": "esp_grad", "dtype": "float32", "ragged": True}]
+        #   {"shape": (None, 3), "name": "angle_indices_nodes", "dtype": "int64", "ragged": True},
+        #   {"shape": (1,), "name": "total_charge", "dtype": "float32", "ragged": False},
+        #   {"shape": (None,), "name": "esp", "dtype": "float32", "ragged": True},
+        #   {"shape": (None, 3), "name": "esp_grad", "dtype": "float32", "ragged": True}
+          ]
 
 outputs = [
-    {"name": "charge", "shape": (None, 1), "ragged": True},
+    #{"name": "charge", "shape": (None, 1), "ragged": True},
     {"name": "graph_labels", "ragged": False},
     {"name": "force", "shape": (None, 3), "ragged": True}
 ]
