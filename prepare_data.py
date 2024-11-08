@@ -176,7 +176,7 @@ def prepare_kgcnn_dataset(data_directory: str, energy_path: str, dataset_name: s
     make_and_write_csv(energy_path=energy_path, total_charge=total_charges, prefix=dataset_name, target_path=data_directory)
     dataset.save()
 
-if __name__ == "__main__":
+def main():
     if not os.path.exists(TARGET_FOLDER):
         os.makedirs(TARGET_FOLDER)
     elif OVERWRITE is False:
@@ -199,3 +199,6 @@ if __name__ == "__main__":
     copy_data(geometry_path=geometry_path, charge_path=charge_path, esp_path=esp_path, esp_grad_path=esp_grad_path, force_path=force_path, prefix=PREFIX, target_path=TARGET_FOLDER)
     make_and_write_csv(energy_path=energy_path, total_charge=None, prefix=PREFIX, target_path=TARGET_FOLDER) # Get overwritten after reading charges
     prepare_kgcnn_dataset(data_directory=TARGET_FOLDER, energy_path=energy_path, dataset_name=PREFIX, cutoff=CUTOFF)
+
+if __name__ == "__main__":
+    main()
