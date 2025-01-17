@@ -7,6 +7,19 @@ import os
 from os.path import join
 import shutil
 import warnings
+from typing import Dict, Sequence
+
+from ase.io import read as read_molecule
+
+BABEL_DATADIR = "/usr/local/run/openbabel-2.4.1" # local installation of openbabel
+os.environ['BABEL_DATADIR'] = BABEL_DATADIR
+
+# Supress tensorflow info-messages and warnings
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+
+from kgcnn.data.base import MemoryGraphDataset
+from kgcnn.data.qm import QMDataset
+from kgcnn.utils import constants
 
 OVERWRITE = True # Set to True to enforce the writing in TARGET_FOLDER possibly overwriting data
 
@@ -25,45 +38,43 @@ TOTAL_CHARGE = None # Calculated from charges.txt
 PREFIX = "ThiolDisulfidExchange" # prefix to generated files, compulsary for kgcnn read-in
 TARGET_FOLDER = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_water/test" # target folder to save the data
 
-BABEL_DATADIR = "/usr/local/run/openbabel-2.4.1" # local installation of openbabel
-os.environ['BABEL_DATADIR'] = BABEL_DATADIR
+def parse_args() -> Dict:
+    ap = argparse.ArgumentParser(description="Give config file")
+    ap.add_argument("-c", "--conf", default=None, type=str, dest="config_path", action="store", required=False, help="Path to config file, default: None", metavar="config")
+    ap.add_argument("-g", "--gpuid", type=int) # Just here as a dummy, nothing actually uses a GPU
+    args = ap.parse_args()
+    config_path = args.config_path
+    if config_path is not None:
+        try:
+            with open(config_path, 'r') as config_file:
+                config_data = json.load(config_file)
+        except FileNotFoundError:
+            print(f"Config file {config_path} not found.")
+            exit(1)
 
-ap = argparse.ArgumentParser(description="Give config file")
-ap.add_argument("-c", "--conf", default=None, type=str, dest="config_path", action="store", required=False, help="Path to config file, default: None", metavar="config")
-ap.add_argument("-g", "--gpuid", type=int) # Just here as a dummy, nothing actually uses a GPU
-args = ap.parse_args()
-config_path = args.config_path
-if config_path is not None:
-    try:
-        with open(config_path, 'r') as config_file:
-            config_data = json.load(config_file)
-    except FileNotFoundError:
-        print(f"Config file {config_path} not found.")
-        exit(1)
-
-    DATA_FOLDER = config_data.get("DATA_FOLDER", DATA_FOLDER)
-    GEOMETRY_FILE = config_data.get("GEOMETRY_FILE", GEOMETRY_FILE)
-    ENERGY_FILE = config_data.get("ENERGY_FILE", ENERGY_FILE)
-    CHARGE_FILE = config_data.get("CHARGE_FILE", CHARGE_FILE)
-    ESP_FILE = config_data.get("ESP_FILE", ESP_FILE)
-    ESP_GRAD_FILE = config_data.get("ESP_GRAD_FILE", ESP_GRAD_FILE)
-    AT_COUNT = int(config_data.get("AT_COUNT", AT_COUNT))
-    CUTOFF = float(config_data.get("CUTOFF", CUTOFF))
-    MAX_NEIGHBORS = int(config_data.get("MAX_NEIGHBORS", MAX_NEIGHBORS))
-    FORCE_FILE = config_data.get("FORCE_FILE", FORCE_FILE)
-    PREFIX = config_data.get("PREFIX", PREFIX)
-    TARGET_FOLDER = config_data.get("TARGET_FOLDER", TARGET_FOLDER)
-
-    TOTAL_CHARGE = config_data.get("TOTAL_CHARGE", TOTAL_CHARGE)
-    if TOTAL_CHARGE is not None:
+    total_charge = config_data.get("TOTAL_CHARGE", TOTAL_CHARGE)
+    if total_charge is not None:
         print("INFO: Giving total charge as directly as input is deprecated. Using charge-file instead.")
 
-# Supress tensorflow info-messages and warnings
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+    # Set default values if they are not present in the config file
+    config_data.setdefault("DATA_FOLDER", DATA_FOLDER)
+    config_data.setdefault("GEOMETRY_FILE", GEOMETRY_FILE)
+    config_data.setdefault("ENERGY_FILE", ENERGY_FILE)
+    config_data.setdefault("CHARGE_FILE", CHARGE_FILE)
+    config_data.setdefault("ESP_FILE", ESP_FILE)
+    config_data.setdefault("ESP_GRAD_FILE", ESP_GRAD_FILE)
+    config_data.setdefault("AT_COUNT", AT_COUNT)
+    config_data.setdefault("CUTOFF", CUTOFF)
+    config_data.setdefault("MAX_NEIGHBORS", MAX_NEIGHBORS)
+    config_data.setdefault("FORCE_FILE", FORCE_FILE)
+    config_data.setdefault("PREFIX", PREFIX)
+    config_data.setdefault("TARGET_FOLDER", TARGET_FOLDER)
 
-from kgcnn.data.base import MemoryGraphDataset
-from kgcnn.data.qm import QMDataset
-from kgcnn.utils import constants
+    config_data["AT_COUNT"] = int(config_data["AT_COUNT"])
+    config_data["CUTOFF"] = float(config_data["CUTOFF"])
+    config_data["MAX_NEIGHBORS"] = int(config_data["MAX_NEIGHBORS"])
+
+    return config_data
 
 def copy_data(geometry_path: str, charge_path: str, esp_path: str, esp_grad_path: str, force_path: str, prefix: str, target_path: str) -> None:
     target_geometry_path = join(target_path, f"{prefix}.xyz")
@@ -94,6 +105,12 @@ def read_irregular_file(file_path, conversion_factor=1.0):
             data.append(float_values)
 
     return data
+
+def read_forces_file(file_path: str) -> Sequence:
+    """Reads forces from file, abusing .xyz format with ases Atoms-object"""
+    all_molecules = read_molecule(file_path, index=":")
+    all_forces = [molecule.positions for molecule in all_molecules]
+    return all_forces
 
 def make_and_write_csv(energy_path: str, total_charge: np.ndarray | None, prefix: str, target_path: str) -> None:
     """Prepares the csv for fourth generation HDNNP
@@ -138,11 +155,9 @@ def prepare_kgcnn_dataset(data_directory: str, energy_path: str, dataset_name: s
         print("No Charges")
         total_charge = None
 
-    #TODO: Indicator for molecule end in forces file
     force_path = os.path.join(os.path.normpath(os.path.dirname(dataset.file_path)), "forces.xyz")
     try:
-        forces = np.loadtxt(force_path)
-        forces = forces.reshape((-1, AT_COUNT, 3))
+        forces = read_forces_file(force_path)
         for i in range(len(dataset)):
             dataset[i].set("force", forces[i])
         print("Got Forces")
@@ -161,10 +176,9 @@ def prepare_kgcnn_dataset(data_directory: str, energy_path: str, dataset_name: s
             dataset[i].set("esp", np.zeros_like(dataset[i]["node_number"], dtype=np.float64))
         print("Vacuum")
 
-    esp_grad_path = os.path.join(os.path.normpath(os.path.dirname(dataset.file_path)), "esp_gradients.txt")
+    esp_grad_path = os.path.join(os.path.normpath(os.path.dirname(dataset.file_path)), "esp_gradients.xyz")
     try:
-        esp_grads = np.loadtxt(esp_grad_path)
-        esp_grads = esp_grads.reshape((-1, AT_COUNT, 3))
+        esp_grads = read_forces_file(esp_grad_path)
         for i in range(len(dataset)):
             dataset[i].set("esp_grad", esp_grads[i])
         print("Got ESP Gradient")
@@ -177,28 +191,59 @@ def prepare_kgcnn_dataset(data_directory: str, energy_path: str, dataset_name: s
     dataset.save()
 
 def main():
-    if not os.path.exists(TARGET_FOLDER):
-        os.makedirs(TARGET_FOLDER)
+    config_data = parse_args()
+    
+    data_folder = config_data["DATA_FOLDER"]
+    geometry_file = config_data["GEOMETRY_FILE"]
+    energy_file = config_data["ENERGY_FILE"]
+    charge_file = config_data["CHARGE_FILE"]
+    esp_file = config_data["ESP_FILE"]
+    esp_grad_file = config_data["ESP_GRAD_FILE"]
+    force_file = config_data["FORCE_FILE"]
+    at_count = config_data["AT_COUNT"]
+    cutoff = config_data["CUTOFF"]
+    max_neighbors = config_data["MAX_NEIGHBORS"]
+    prefix = config_data["PREFIX"]
+    target_folder = config_data["TARGET_FOLDER"]
+
+    if not os.path.exists(target_folder):
+        os.makedirs(target_folder)
     elif OVERWRITE is False:
-        print(f"{TARGET_FOLDER} already exists and OVERWRITE is False. Aborting")
+        print(f"{target_folder} already exists and OVERWRITE is False. Aborting")
         exit(1)
     else:
-        print(f"Warning: Existing data in {TARGET_FOLDER} was overwritten")
+        print(f"Warning: Existing data in {target_folder} was overwritten")
 
-    geometry_path = join(DATA_FOLDER, GEOMETRY_FILE)
-    energy_path = join(DATA_FOLDER, ENERGY_FILE)
-    charge_path = join(DATA_FOLDER, CHARGE_FILE)
-    esp_path = join(DATA_FOLDER, ESP_FILE)
-    esp_grad_path = join(DATA_FOLDER, ESP_GRAD_FILE)
-    force_path = join(DATA_FOLDER, FORCE_FILE)
-
-    if CUTOFF is None:
-        CUTOFF = 10.0
-        print("Cutoff not given, using default value of 10.0 Angstrom")
+    geometry_path = join(data_folder, geometry_file)
+    energy_path = join(data_folder, energy_file)
+    charge_path = join(data_folder, charge_file)
+    esp_path = join(data_folder, esp_file)
+    esp_grad_path = join(data_folder, esp_grad_file)
+    force_path = join(data_folder, force_file)
     
-    copy_data(geometry_path=geometry_path, charge_path=charge_path, esp_path=esp_path, esp_grad_path=esp_grad_path, force_path=force_path, prefix=PREFIX, target_path=TARGET_FOLDER)
-    make_and_write_csv(energy_path=energy_path, total_charge=None, prefix=PREFIX, target_path=TARGET_FOLDER) # Get overwritten after reading charges
-    prepare_kgcnn_dataset(data_directory=TARGET_FOLDER, energy_path=energy_path, dataset_name=PREFIX, cutoff=CUTOFF)
+    copy_data(
+        geometry_path=geometry_path,
+        charge_path=charge_path,
+        esp_path=esp_path,
+        esp_grad_path=esp_grad_path,
+        force_path=force_path,
+        prefix=prefix,
+        target_path=target_folder
+    )
+
+    make_and_write_csv(
+        energy_path=energy_path,
+        total_charge=None,
+        prefix=prefix,
+        target_path=target_folder
+    ) # Get overwritten after reading charges
+        
+    prepare_kgcnn_dataset(
+        data_directory=target_folder,
+        energy_path=energy_path,
+        dataset_name=prefix,
+        cutoff=cutoff
+    )
 
 if __name__ == "__main__":
     main()
