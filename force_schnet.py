@@ -97,7 +97,7 @@ print(dataset[0].keys())
 model_config = {
     "name": "Schnet",
     "inputs": [
-        {"shape": [None], "name": "node_number", "dtype": "int32", "ragged": True},
+        {"shape": [None], "name": "node_number", "dtype": "int64", "ragged": True},
         {"shape": [None, 3], "name": "node_coordinates", "dtype": "float32", "ragged": True},
         {"shape": [None, 2], "name": "range_indices", "dtype": "int64", "ragged": True},
         # {"shape": (), "name": "total_nodes", "dtype": "int64"},
