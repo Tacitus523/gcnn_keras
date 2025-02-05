@@ -222,17 +222,17 @@ predicted_force = np.array(predicted_force).reshape(-1,1)
 
 plot_predict_true(predicted_energy, true_energy,
     filepath="", data_unit=r"$\frac{kcal}{mol}$",
-    model_name="Schnet", dataset_name=DATASET_NAME, target_names="Energy",
+    model_name="PaiNN", dataset_name=DATASET_NAME, target_names="Energy",
     error="RMSE", file_name=f"predict_energy.png", show_fig=False)
 
 plot_predict_true(predicted_force, true_force,
     filepath="", data_unit="Eh/B",
-    model_name="Schnet", dataset_name=DATASET_NAME, target_names="Force",
+    model_name="PaiNN", dataset_name=DATASET_NAME, target_names="Force",
     error="RMSE", file_name=f"predict_force.png", show_fig=False)
 
 plot_train_test_loss(hists,
     filepath="", data_unit="Eh",
-    model_name="Schnet", dataset_name=DATASET_NAME, file_name="loss.png", show_fig=False)
+    model_name="PaiNN", dataset_name=DATASET_NAME, file_name="loss.png", show_fig=False)
 
 rmse_energy = mean_squared_error(true_energy, predicted_energy, squared=False)
 mae_energy  = mean_absolute_error(true_energy, predicted_energy)
