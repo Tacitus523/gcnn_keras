@@ -5,6 +5,7 @@ import os
 import pickle
 import time
 import warnings
+from typing import Dict, List
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 warnings.filterwarnings("ignore")
@@ -257,6 +258,30 @@ def evaluate_model(dataset: MemoryGraphDataset,
         scaler.inverse_transform_dataset(dataset)
         predicted_energy, predicted_force = scaler.inverse_transform(
         y=(predicted_energy.flatten(), predicted_force), X=dataset[test_index].get("node_number"))
+
+    atomic_numbers_list: List[np.ndarray] = dataset[test_index].get("node_number")
+    positions_list: List[np.ndarray] = dataset[test_index].get("node_coordinates")
+    ref_infos: Dict[str, np.ndarray] = {}
+    ref_arrays: Dict[str, List[np.ndarray]] = {}
+    pred_infos: Dict[str, np.ndarray] = {}
+    pred_arrays: Dict[str, List[np.ndarray]] = {}
+
+    ref_infos["energy"] = np.array(dataset[test_index].get("graph_labels"))
+    ref_arrays["forces"] = dataset[test_index].get("force")
+    ref_arrays["charges"] = dataset[test_index].get("charge")
+    pred_infos["energy"] = predicted_energy
+    pred_arrays["forces"] = predicted_force
+    pred_arrays["charges"] = predicted_charge
+
+    save_load_utils.save_extxyz(
+        atomic_numbers_list=atomic_numbers_list,
+        positions_list=positions_list,
+        ref_infos=ref_infos,
+        ref_arrays=ref_arrays,
+        pred_infos=pred_infos,
+        pred_arrays=pred_arrays,
+        filename="HDNNP_geoms.extxyz"
+    )
 
     true_charge = np.array(dataset[test_index].get("charge")).reshape(-1,1)
     true_energy = np.array(dataset[test_index].get("graph_labels")).reshape(-1,1)*constants.hartree_to_kcalmol
