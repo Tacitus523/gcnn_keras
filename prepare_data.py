@@ -24,17 +24,14 @@ from kgcnn.utils import constants
 OVERWRITE = True # Set to True to enforce the writing in TARGET_FOLDER possibly overwriting data
 
 DATA_FOLDER = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_water/test" # Folder that contains data the files
-GEOMETRY_FILE = "ThiolDisulfidExchange.xyz" # path to geometry-file, gromacs-format, in Angstrom
+GEOMETRY_FILE = "ThiolDisulfidExchange.xyz" # path to geometry-file, gromacs-format, in Angstrom, converted to Bohr
 ENERGY_FILE = "energy_diff.txt" # path to energy-file, no header, separated by new lines, in Hartree
 CHARGE_FILE = "charges.txt" # path to charge-file, one line per molecule geometry,  "" if not available, in elementary charges
 ESP_FILE = "esps_by_mm.txt" # path to esp caused by mm atoms, one line per molecule geometry, "" if not available, in V
 ESP_GRAD_FILE = "esp_gradients.txt" # path to the ESP gradients, "" if not available, in Eh/Bohr^2, I hope
-AT_COUNT = 15 # atom count, still used for forces and esps, which still lack universal support
-CUTOFF = 10.0 # Max distance for bonds and angles to be considered relevant, None if not available, in Angstrom, default 10, CONSIDER CUTOFF IN YOUR SYMMETRY FUNCTIONS
+CUTOFF = 10.0 # Max distance for bonds and angles to be considered relevant, None if not available, in Angstrom, converted to Bohr, default 10, CONSIDER CUTOFF IN YOUR SYMMETRY FUNCTIONS
 MAX_NEIGHBORS = 25 # Maximal neighbors per atom to be considered relevant, disregards neighbors within cutoff distance if too small
 FORCE_FILE = "forces.xyz" # path to force-file, "" if not available, in Eh/Bohr, apparently given like that from Orca
-# TOTAL_CHARGE = -1 # total charge of molecule, None if not available, different charges not supported
-TOTAL_CHARGE = None # Calculated from charges.txt
 PREFIX = "ThiolDisulfidExchange" # prefix to generated files, compulsary for kgcnn read-in
 TARGET_FOLDER = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_water/test" # target folder to save the data
 
@@ -52,9 +49,12 @@ def parse_args() -> Dict:
             print(f"Config file {config_path} not found.")
             exit(1)
 
-    total_charge = config_data.get("TOTAL_CHARGE", TOTAL_CHARGE)
+    total_charge = config_data.get("TOTAL_CHARGE", None)
     if total_charge is not None:
         print("INFO: Giving total charge as directly as input is deprecated. Using charge-file instead.")
+    at_count = config_data.get("AT_COUNT", None)
+    if at_count is not None:
+        print("INFO: Giving atom count as directly as input is redundant by now.")
 
     # Set default values if they are not present in the config file
     config_data.setdefault("DATA_FOLDER", DATA_FOLDER)
@@ -63,14 +63,12 @@ def parse_args() -> Dict:
     config_data.setdefault("CHARGE_FILE", CHARGE_FILE)
     config_data.setdefault("ESP_FILE", ESP_FILE)
     config_data.setdefault("ESP_GRAD_FILE", ESP_GRAD_FILE)
-    config_data.setdefault("AT_COUNT", AT_COUNT)
     config_data.setdefault("CUTOFF", CUTOFF)
     config_data.setdefault("MAX_NEIGHBORS", MAX_NEIGHBORS)
     config_data.setdefault("FORCE_FILE", FORCE_FILE)
     config_data.setdefault("PREFIX", PREFIX)
     config_data.setdefault("TARGET_FOLDER", TARGET_FOLDER)
 
-    config_data["AT_COUNT"] = int(config_data["AT_COUNT"])
     config_data["CUTOFF"] = float(config_data["CUTOFF"])
     config_data["MAX_NEIGHBORS"] = int(config_data["MAX_NEIGHBORS"])
 
@@ -125,7 +123,7 @@ def make_and_write_csv(energy_path: str, total_charge: np.ndarray | None, prefix
         df["total_charge"] = total_charge
     df.to_csv(join(target_path,f"{prefix}.csv"), index=False, header=True, sep=',')
     
-def prepare_kgcnn_dataset(data_directory: str, energy_path: str, dataset_name: str, cutoff: float) -> None:
+def prepare_kgcnn_dataset(data_directory: str, energy_path: str, dataset_name: str, cutoff: float, max_neighbors: int) -> None:
     file_name=f"{dataset_name}.csv"
     
     dataset = QMDataset(data_directory=data_directory, file_name=file_name, dataset_name=dataset_name)
@@ -137,7 +135,7 @@ def prepare_kgcnn_dataset(data_directory: str, energy_path: str, dataset_name: s
     for i in range(len(dataset)):
         dataset[i]["node_coordinates"] *= constants.angstrom_to_bohr
 
-    dataset.map_list(method="set_range", max_distance=(cutoff+1.0)*constants.angstrom_to_bohr, max_neighbours=MAX_NEIGHBORS)
+    dataset.map_list(method="set_range", max_distance=(cutoff+1.0)*constants.angstrom_to_bohr, max_neighbours=max_neighbors)
     dataset.map_list(method="set_angle")
     dataset.map_list(method="count_nodes_and_edges", total_nodes="total_nodes", total_edges="total_ranges", count_nodes="node_number", count_edges="range_indices")
     
@@ -200,7 +198,6 @@ def main():
     esp_file = config_data["ESP_FILE"]
     esp_grad_file = config_data["ESP_GRAD_FILE"]
     force_file = config_data["FORCE_FILE"]
-    at_count = config_data["AT_COUNT"]
     cutoff = config_data["CUTOFF"]
     max_neighbors = config_data["MAX_NEIGHBORS"]
     prefix = config_data["PREFIX"]
@@ -242,7 +239,8 @@ def main():
         data_directory=target_folder,
         energy_path=energy_path,
         dataset_name=prefix,
-        cutoff=cutoff
+        cutoff=cutoff,
+        max_neighbors=max_neighbors
     )
 
 if __name__ == "__main__":
