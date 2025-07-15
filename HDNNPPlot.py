@@ -21,12 +21,12 @@ HDNNP_GEOMS: str = "HDNNP_geoms.extxyz"
 DATA_SOURCES_FILE: Optional[str] = None  # File containing the data source of each entry
 
 # Keywords for extracting data
-REF_ENERGY_KEY: str = "ref_energy"
-REF_FORCES_KEY: str = "ref_forces"
-REF_CHARGES_KEY: str = "ref_charges"
-PRED_ENERGY_KEY: str = "pred_energy"
-PRED_FORCES_KEY: str = "pred_forces"
-PRED_CHARGES_KEY: str = "pred_charges"
+REF_ENERGY_KEY: Optional[str] = "ref_energy"
+REF_FORCES_KEY: Optional[str] = "ref_forces"
+REF_CHARGES_KEY: Optional[str] = "ref_charges"
+PRED_ENERGY_KEY: Optional[str] = "pred_energy"
+PRED_FORCES_KEY: Optional[str] = "pred_forces"
+PRED_CHARGES_KEY: Optional[str] = "pred_charges"
 
 # Units for plotting
 ENERGY_UNIT: str = "eV"
@@ -105,14 +105,18 @@ def plot_data(
         ref_data: Dictionary containing reference data
         pred_data: Dictionary containing predicted data
         key: Key to extract the specific data from dictionaries
-        sources: Data sources
+        sources: Optional data sources for coloring
         x_label: Label for x-axis
         y_label: Label for y-axis
+        unit: Unit for the data
         filename: Output filename for the plot
     """
     df: pd.DataFrame = create_dataframe(ref_data, pred_data, key, sources, x_label, y_label)
     rmse: float = np.sqrt(np.mean((df[x_label] - df[y_label]) ** 2))
     r2: float = df[x_label].corr(df[y_label], method="pearson") ** 2
+
+    print(f"RMSE for {key}: {rmse:.2f} {unit}")
+    print(f"R² for {key}: {r2:.4f}")
 
     sns.set_context("talk")
     fig, ax = plt.subplots(figsize=(8, 6))
@@ -121,9 +125,10 @@ def plot_data(
         x=x_label,
         y=y_label,
         hue="source" if sources is not None else None,
-        palette="viridis",
-        alpha=0.7,
+        palette="tab10" if sources is not None else None,
+        alpha=0.6,
         edgecolor=None,
+        s=20,
     )
     plt.plot(ref_data[key], ref_data[key], color="black", label="_Identity Line")
     plt.xlabel(f"{x_label} ({unit})")
@@ -137,9 +142,11 @@ def plot_data(
         verticalalignment="top",
         bbox=dict(facecolor='white', edgecolor='black', boxstyle='round,pad=0.5'),
     )
-    plt.legend(title=None, loc="upper left", fontsize="small")
-    for legend_handle in ax.get_legend().legend_handles:
-        legend_handle.set_alpha(1)
+    # Improve legend if available
+    if "source" in df.columns:
+        plt.legend(title=None, loc="upper left", fontsize="small")
+        for legend_handle in ax.get_legend().legend_handles:
+            legend_handle.set_alpha(1)
     plt.tight_layout()
     plt.savefig(filename, dpi=300)
     plt.close()
@@ -199,10 +206,8 @@ def main() -> None:
     for name, data in zip(["Ref", "HDNNP"], [ref_data, hdnnp_data]):
         for key, value in data.items():
             # Skip non-numeric data
-            if value.dtype not in (np.float32, np.float64, np.int32, np.int64):
-                continue
-            print(value.dtype)
-            print(f"{name} {key}: {value.shape} Min Max: {np.min(value): .1f} {np.max(value): .1f}")
+            if isinstance(value, np.ndarray) and value.dtype in (np.float32, np.float64, np.int32, np.int64):
+                print(f"{name} {key}: {value.shape} Min Max: {np.min(value): .1f} {np.max(value): .1f}")
 
     plot_data(
         ref_data,
