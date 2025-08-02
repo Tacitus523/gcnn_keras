@@ -5,11 +5,14 @@ from ase import Atoms
 from ase.io import read, write
 from typing import List, Dict, Tuple
 
-def save_history(history_objects: list, filename: str = "histories.pkl"):
-    """_summary_
+import numpy as np
+import tensorflow as tf
+
+def save_history(history_objects: List[tf.keras.callbacks.History], filename: str = "histories.pkl"):
+    """Save the training history of Keras models to a file.
 
     Args:
-        history_objects (list): _description_
+        history_objects (List[tf.keras.src.callbacks.History]): List of history objects to save.
         filename (str, optional): _description_. Defaults to "histories.pkl".
     """
     hist_dicts = [hist.history for hist in history_objects]
@@ -22,17 +25,24 @@ def load_history(filename: str = "histories.pkl"):
     return hist_dicts
 
 
-def save_training_indices(train_indices: list, test_indices: list, filename: str ="training_indices.pkl"):
-    """_summary_
+def save_training_indices(
+        train_indices: List[np.ndarray], 
+        val_indices: List[np.ndarray],
+        test_index: np.ndarray, 
+        filename: str ="training_indices.pkl"
+    ) -> None:
+    """Save training, validation, and test indices to a file.
 
     Args:
-        train_indices (list): _description_
-        test_indices (list): _description_
-        filename (str, optional): _description_. Defaults to "training_indices.pkl".
+        train_indices (List[np.ndarray]): Indices for training set.
+        val_indices (List[np.ndarray]): Indices for validation set.
+        test_indices (np.ndarray): Indices for test set.
+        filename (str, optional): Filename to save the indices. Defaults to "training_indices.pkl
     """
     index_dict = {
         "train": train_indices,
-        "test": test_indices
+        "val": val_indices,
+        "test": test_index
     }
     with open(os.path.join("", filename), "wb") as f:
         pickle.dump(index_dict, f)

@@ -82,8 +82,8 @@ def extract_data(
                 ref_forces.extend(m.arrays[forces_keyword].flatten())
         ref_elements.extend(m.get_chemical_symbols())
     result = {}
-    result["energy"] = np.array(ref_energy) * H_to_eV # Convert Hartree to eV
-    result["forces"] = np.array(ref_forces) * H_B_to_ev_angstrom # Convert Hartree/Bohr to eV/Å
+    result["energy"] = np.array(ref_energy) # eV #* H_to_eV # Convert Hartree to eV
+    result["forces"] = np.array(ref_forces) # eV/Å #* H_B_to_ev_angstrom # Convert Hartree/Bohr to eV/Å
     result["charges"] = np.array(ref_charges)
     result["elements"] = np.array(ref_elements)
     return result

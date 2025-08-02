@@ -1,8 +1,18 @@
 # CONSTANTS
-V_to_au = 1/27.211386245988
-angstrom_to_bohr = 1.8897259886
 hartree_to_kcalmol = 627.509
-hartree_to_ev = 27.2116
+kcalmol_to_hartree = 1/hartree_to_kcalmol
+
+hartree_to_eV = 27.211386245988
+eV_to_hartree = 1/hartree_to_eV
+
+angstrom_to_bohr = 1.8897259886
+bohr_to_angstrom = 1/angstrom_to_bohr
+
+au_to_V = hartree_to_eV
+V_to_au = eV_to_hartree
+
+hartree_bohr_to_kcalmol_angstrom = hartree_to_kcalmol * 1/bohr_to_angstrom
+hartree_bohr_to_eV_angstrom = hartree_to_eV * 1/bohr_to_angstrom
 
 # Dictionary mapping atomic number to element symbol
 atomic_number_to_element = {

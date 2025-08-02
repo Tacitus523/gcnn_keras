@@ -212,7 +212,33 @@ def plot_test_set_prediction(data: pd.DataFrame, observation: str, prediction: s
         plot.ax.text(text_x, text_y, f"R2: {r2:.2f}", bbox={
         "facecolor": "grey", "alpha": 0.5, "pad": 10})
     if filepath is not None:
-        plt.savefig(os.path.join(filepath, f"{'_'.join(title.split())}_lmplot"), dpi=300, bbox_inches = "tight")
+        plt.savefig(filepath, dpi=300, bbox_inches = "tight")
     if show_fig is True:
         plt.show()
     plt.close()
+
+def print_error_dict(error_dict: dict) -> None:
+    # Create a tabular display of the error metrics
+    print("\nError Metrics:")
+    headers = ["Metric", "Charge", "Energy", "Force"]
+    rows = []
+
+    # Group metrics by type and stage
+    for metric in ["RMSE", "MAE", "R2"]:
+        for stage in ["Train", "Val", "Test"]:
+            row = [f"{stage} {metric}"]
+            for target in ["Charge", "Energy", "Force"]:
+                key = f"{stage} {metric} {target}"
+                if key in error_dict:
+                    row.append(f"{error_dict[key]:.4f}")
+                else:
+                    row.append("N/A")
+            rows.append(row)
+
+    # Print table using string formatting
+    print("-" * 60)
+    print(f"{headers[0]:<15} {headers[1]:>10} {headers[2]:>10} {headers[3]:>10}")
+    print("-" * 60)
+    for row in rows:
+        print(f"{row[0]:<15} {row[1]:>10} {row[2]:>10} {row[3]:>10}")
+    print("-" * 60)
