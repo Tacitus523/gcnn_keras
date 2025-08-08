@@ -529,32 +529,17 @@ def main(config: Dict[str, Any]) -> None:
         {"name": "node_forces", "ragged": True}
     ]
 
-    train_config = {
-        "energy_initial_learning_rate": config["energy_initial_learning_rate"],
-        "energy_final_learning_rate": config["energy_final_learning_rate"],
-        "energy_epochs": config["energy_epochs"],
-        "energy_early_stopping": config["energy_early_stopping"],
-        "energy_batch_size": config["energy_batch_size"],
-        "force_loss_factor": config["force_loss_factor"],
-        "model_prefix": config["model_prefix"],
-        "n_splits": config["n_splits"],
-        "use_scaler": config["use_scaler"],
-        "scaler_path": config["scaler_path"],
-        "standardize_scale": config["standardize_scale"],
-        "use_wandb": config["use_wandb"]
-    }
-
     # Load data and train
     dataset = load_data(config)
-    model_energy_force, hists, scaler = train_models(dataset, model_config, outputs, train_config)
-    
+    model_energy_force, hists, scaler = train_models(dataset, model_config, outputs, config)
+
     # Get indices for evaluation
     train_indices, val_indices, test_indices = save_load_utils.load_training_indices()
     indices = (train_indices, val_indices, test_indices)
     
     # Evaluate model
-    evaluate_model(dataset, model_energy_force, indices, model_config, train_config, scaler)
-    
+    evaluate_model(dataset, model_energy_force, indices, model_config, config, scaler)
+
     if config["use_wandb"]:
         wandb_wizard.wandb.finish()
 

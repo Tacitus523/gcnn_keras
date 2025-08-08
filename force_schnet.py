@@ -44,6 +44,16 @@ ENERGY_BATCH_SIZE            = 64 # Batch size during training
 ENERGY_EARLY_STOPPING        = 0 # Patience of Early Stopping. If 0, no Early Stopping
 FORCE_LOSS_FACTOR            = 95
 
+# SCHNET MODEL HYPER PARAMETERS
+INPUT_EMBEDDING_DIM          = 128 # Output dimension of node embedding
+INTERACTION_UNITS            = 128 # Units in interaction layers
+MODEL_DEPTH                  = 6 # Number of interaction layers
+GAUSS_BINS                   = 25 # Number of Gaussian basis functions
+GAUSS_DISTANCE               = 5 # Distance cutoff for Gaussian basis
+GAUSS_OFFSET                 = 0.0 # Offset for Gaussian basis
+GAUSS_SIGMA                  = 0.4 # Width of Gaussian basis functions
+LAST_MLP_UNITS               = [128, 64, 1] # Units in final MLP layers
+
 N_SPLITS = 3 # Number of splits for cross-validation, used in KFold
 
 # SCALER PARAMETERS
@@ -68,6 +78,14 @@ CONFIG_DATA = {
     "energy_batch_size": ENERGY_BATCH_SIZE,
     "energy_early_stopping": ENERGY_EARLY_STOPPING,
     "force_loss_factor": FORCE_LOSS_FACTOR,
+    "input_embedding_dim": INPUT_EMBEDDING_DIM,
+    "interaction_units": INTERACTION_UNITS,
+    "model_depth": MODEL_DEPTH,
+    "gauss_bins": GAUSS_BINS,
+    "gauss_distance": GAUSS_DISTANCE,
+    "gauss_offset": GAUSS_OFFSET,
+    "gauss_sigma": GAUSS_SIGMA,
+    "last_mlp_units": LAST_MLP_UNITS,
     "n_splits": N_SPLITS,
     "use_scaler": USE_SCALER,
     "scaler_path": SCALER_PATH,
@@ -409,17 +427,18 @@ def main(config: Dict[str, Any]) -> None:
             # {"shape": (), "name": "total_ranges", "dtype": "int64"}
         ],
         #"cast_disjoint_kwargs": {"padded_disjoint": False},
-        "input_embedding": {"node": {"input_dim": 95, "output_dim": 128}},
+        "input_embedding": {"node": {"input_dim": 95, "output_dim": config["input_embedding_dim"]}},
         #"make_distance": True, "expand_distance": True,
         "interaction_args": {
-            "units": 128, "use_bias": True, "activation": "kgcnn>shifted_softplus",
+            "units": config["interaction_units"], "use_bias": True, "activation": "kgcnn>shifted_softplus",
             "cfconv_pool": "sum"
         },
         "node_pooling_args": {"pooling_method": "sum"},
-        "depth": 6,
-        "gauss_args": {"bins": 25, "distance": 5, "offset": 0.0, "sigma": 0.4},
+        "depth": config["model_depth"],
+        "gauss_args": {"bins": config["gauss_bins"], "distance": config["gauss_distance"], 
+                      "offset": config["gauss_offset"], "sigma": config["gauss_sigma"]},
         "verbose": 10,
-        "last_mlp": {"use_bias": [True, True, True], "units": [128, 64, 1],
+        "last_mlp": {"use_bias": [True, True, True], "units": config["last_mlp_units"],
             "activation": ['kgcnn>shifted_softplus', 'kgcnn>shifted_softplus', 'linear']},
         "output_embedding": "graph", "output_to_tensor": True,
         "use_output_mlp": False,

@@ -44,6 +44,16 @@ ENERGY_BATCH_SIZE            = 64 # Batch size during training
 ENERGY_EARLY_STOPPING        = 0 # Patience of Early Stopping. If 0, no Early Stopping
 FORCE_LOSS_FACTOR            = 95
 
+# PAINN MODEL HYPER PARAMETERS
+INPUT_EMBEDDING_DIM          = 128 # Output dimension of node embedding
+BESSEL_NUM_RADIAL            = 20 # Number of radial basis functions
+BESSEL_CUTOFF                = 5.0 # Cutoff distance for radial basis
+BESSEL_ENVELOPE_EXPONENT     = 5 # Envelope exponent for radial basis
+CONV_UNITS                   = 128 # Units in convolution layers
+UPDATE_UNITS                 = 128 # Units in update layers
+MODEL_DEPTH                  = 6 # Number of interaction layers
+OUTPUT_MLP_UNITS             = [128, 1] # Units in output MLP layers
+
 N_SPLITS = 3 # Number of splits for cross-validation, used in KFold
 
 # SCALER PARAMETERS
@@ -68,6 +78,14 @@ CONFIG_DATA = {
     "energy_batch_size": ENERGY_BATCH_SIZE,
     "energy_early_stopping": ENERGY_EARLY_STOPPING,
     "force_loss_factor": FORCE_LOSS_FACTOR,
+    "input_embedding_dim": INPUT_EMBEDDING_DIM,
+    "bessel_num_radial": BESSEL_NUM_RADIAL,
+    "bessel_cutoff": BESSEL_CUTOFF,
+    "bessel_envelope_exponent": BESSEL_ENVELOPE_EXPONENT,
+    "conv_units": CONV_UNITS,
+    "update_units": UPDATE_UNITS,
+    "model_depth": MODEL_DEPTH,
+    "output_mlp_units": OUTPUT_MLP_UNITS,
     "n_splits": N_SPLITS,
     "use_scaler": USE_SCALER,
     "scaler_path": SCALER_PATH,
@@ -412,16 +430,17 @@ def main(config: Dict[str, Any]) -> None:
             #{"shape": (), "name": "total_ranges", "dtype": "int64"}
         ],
         #"cast_disjoint_kwargs": {"padded_disjoint": False},
-        "input_embedding": {"node": {"input_dim": 95, "output_dim": 128}},
+        "input_embedding": {"node": {"input_dim": 95, "output_dim": config["input_embedding_dim"]}},
         "equiv_initialize_kwargs": {"dim": 3, "method": "eps"},# "units": 128},
         #"input_node_embedding": {"input_dim": 95, "output_dim": 128},
-        "bessel_basis": {"num_radial": 20, "cutoff": 5.0, "envelope_exponent": 5},
+        "bessel_basis": {"num_radial": config["bessel_num_radial"], "cutoff": config["bessel_cutoff"], 
+                        "envelope_exponent": config["bessel_envelope_exponent"]},
         "pooling_args": {"pooling_method": "sum"},
-        "conv_args": {"units": 128, "cutoff": None},
-        "update_args": {"units": 128},
-        "depth": 6, "verbose": 10,
+        "conv_args": {"units": config["conv_units"], "cutoff": None},
+        "update_args": {"units": config["update_units"]},
+        "depth": config["model_depth"], "verbose": 10,
         "output_embedding": "graph",
-        "output_mlp": {"use_bias": [True, True], "units": [128, 1], "activation": ["swish", "linear"]},
+        "output_mlp": {"use_bias": [True, True], "units": config["output_mlp_units"], "activation": ["swish", "linear"]},
     }
 
     outputs = [
