@@ -33,7 +33,7 @@ from kgcnn.model.force import EnergyForceModel
 from kgcnn.model.mlmm import MLMMEnergyForceModel
 from kgcnn.metrics.loss import RaggedMeanAbsoluteError
 
-from force_hdnnp4th import load_data, train_model, evaluate_model
+from force_hdnnp4th import load_data, train_models, evaluate_model
 
 DATA_DIRECTORY="/lustre/work/ws/ws1/ka_he8978-thiol_disulfide/training_data/B3LYP_aug-cc-pVTZ_vacuum"
 DATASET_NAME="ThiolDisulfidExchange"
@@ -184,7 +184,7 @@ class MyRandomTuner(kt.RandomSearch):
             "use_output_mlp": False
         }
 
-        model_energy_force, test_index, charge_hists, hists, scaler = train_model(dataset, model_config, build_config["charge_output"], build_config["outputs"], train_config)
+        model_energy_force, test_index, charge_hists, hists, scaler = train_models(dataset, model_config, build_config["charge_output"], build_config["outputs"], train_config)
         return hists[0]
 
 class MyHyperModel(kt.HyperModel):
