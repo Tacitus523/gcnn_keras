@@ -23,17 +23,17 @@ from kgcnn.utils import constants
 
 OVERWRITE = True # Set to True to enforce the writing in TARGET_FOLDER possibly overwriting data
 
-DATA_FOLDER = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_water/test" # Folder that contains data the files
+DATA_FOLDER = os.getcwd() # Folder that contains data the files
 GEOMETRY_FILE = "ThiolDisulfidExchange.xyz" # path to geometry-file, gromacs-format, in Angstrom, converted to Bohr
 ENERGY_FILE = "energy_diff.txt" # path to energy-file, no header, separated by new lines, in Hartree
+FORCE_FILE = "forces.xyz" # path to force-file, "" if not available, in Eh/Bohr, apparently given like that from Orca
 CHARGE_FILE = "charges.txt" # path to charge-file, one line per molecule geometry,  "" if not available, in elementary charges
 ESP_FILE = "esps_by_mm.txt" # path to esp caused by mm atoms, one line per molecule geometry, "" if not available, in V
 ESP_GRAD_FILE = "esp_gradients.txt" # path to the ESP gradients, "" if not available, in Eh/Bohr^2, I hope
 CUTOFF = 10.0 # Max distance for bonds and angles to be considered relevant, None if not available, in Angstrom, converted to Bohr, default 10, CONSIDER CUTOFF IN YOUR SYMMETRY FUNCTIONS
 MAX_NEIGHBORS = 25 # Maximal neighbors per atom to be considered relevant, disregards neighbors within cutoff distance if too small
-FORCE_FILE = "forces.xyz" # path to force-file, "" if not available, in Eh/Bohr, apparently given like that from Orca
 PREFIX = "ThiolDisulfidExchange" # prefix to generated files, compulsary for kgcnn read-in
-TARGET_FOLDER = "/data/lpetersen/training_data/B3LYP_aug-cc-pVTZ_water/test" # target folder to save the data
+TARGET_FOLDER = "kgcnn_inputs" # target folder to save the data
 
 def parse_args() -> Dict:
     ap = argparse.ArgumentParser(description="Give config file")
@@ -194,10 +194,10 @@ def main():
     data_folder = config_data["DATA_FOLDER"]
     geometry_file = config_data["GEOMETRY_FILE"]
     energy_file = config_data["ENERGY_FILE"]
+    force_file = config_data["FORCE_FILE"]
     charge_file = config_data["CHARGE_FILE"]
     esp_file = config_data["ESP_FILE"]
     esp_grad_file = config_data["ESP_GRAD_FILE"]
-    force_file = config_data["FORCE_FILE"]
     cutoff = config_data["CUTOFF"]
     max_neighbors = config_data["MAX_NEIGHBORS"]
     prefix = config_data["PREFIX"]
@@ -213,10 +213,10 @@ def main():
 
     geometry_path = join(data_folder, geometry_file)
     energy_path = join(data_folder, energy_file)
+    force_path = join(data_folder, force_file)
     charge_path = join(data_folder, charge_file)
     esp_path = join(data_folder, esp_file)
     esp_grad_path = join(data_folder, esp_grad_file)
-    force_path = join(data_folder, force_file)
     
     copy_data(
         geometry_path=geometry_path,
