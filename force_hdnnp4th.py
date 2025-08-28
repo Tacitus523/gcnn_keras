@@ -324,7 +324,10 @@ def train_models(dataset: MemoryGraphDataset,
     )
     train_val_dataset = dataset[train_val_index]
 
-    kf = KFold(n_splits=n_splits, random_state=42, shuffle=True)
+    if n_splits > 1:
+        kf = KFold(n_splits=n_splits, random_state=42, shuffle=True)
+    else:
+        kf = KFold(n_splits=3, random_state=42, shuffle=True)
     charge_hists = []
     hists = []
     indices = [[],[],test_index]  # Store train, val, and test indices
@@ -368,6 +371,8 @@ def train_models(dataset: MemoryGraphDataset,
         indices[0].append(abs_train_index)
         indices[1].append(abs_val_index)
         model_index += 1
+        if n_splits == 1:
+            break
 
     save_load_utils.save_history(charge_hists, filename="charge_histories.pkl")
     save_load_utils.save_history(hists, filename="histories.pkl")
