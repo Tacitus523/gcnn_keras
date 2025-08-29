@@ -89,6 +89,7 @@ def make_model_behler(inputs: list = None,
             - angle_indices_nodes (tf.RaggedTensor): Index list for angles of shape `(batch, None, 3)` .
             - total_charge (tf.Tensor): Total charge of each molecule of shape `(batch, 1)` .
             - esp (tf.RaggedTensor): ESP on QM-atoms from MM-atoms of shape `(batch, None)` .
+            - esp_grad (tf.RaggedTensor): Gradient of ESP on QM-atoms from MM-atoms of shape `(batch, None, 3 )` .
 
     Outputs:
         tf.Tensor: Graph embeddings of shape `(batch, L)` if :obj:`output_embedding="graph"`.
@@ -124,6 +125,7 @@ def make_model_behler(inputs: list = None,
     angle_index_input = ks.layers.Input(**inputs[3])
     total_charge_input = ks.layers.Input(**inputs[4])
     esp_input = ks.layers.Input(**inputs[5])
+    esp_grad_input = ks.layers.Input(**inputs[6])
 
     # ACSF representation.
     rep_g2 = ACSFG2(**ACSFG2.make_param_table(**g2_kwargs))([node_input, xyz_input, edge_index_input])
@@ -153,24 +155,26 @@ def make_model_behler(inputs: list = None,
     local_node_energy = RelationalMLP(**mlp_local_kwargs)([rep_charge, node_input])
     eng_short = PoolingNodes(**node_pooling_args)(local_node_energy)
 
-    out = ks.layers.Add()([eng_short, eng_elec, eng_qmmm])
+    charge = ks.layers.Lambda(lambda x: tf.convert_to_tensor(x.to_tensor()), name="charge")(q_local)
+    eng_total = ks.layers.Add()([eng_short, eng_elec, eng_qmmm])
     #out = ks.layers.Add()([eng_short, eng_elec])
 
     # Output embedding choice
     if output_embedding == 'graph' or output_embedding == 'total_energy':
+        out = eng_total
         if use_output_mlp:
             out = MLP(**output_mlp)(out)
-        if energy_mean_and_var:
-            out = ks.layers.Normalization(mean=energy_mean_and_var[0], variance=energy_mean_and_var[1], invert=True)(out)
     elif output_embedding == 'charge':
         out = q_local
     elif output_embedding == 'electrostatic_energy':
         out = eng_elec
+    elif output_embedding == 'charge+qm_energy':
+        out = [charge, eng_total]
     else:
         raise ValueError("Unsupported output embedding for mode `HDNNP4th`")
 
     model = ks.models.Model(
-        inputs=[node_input, xyz_input, edge_index_input, angle_index_input, total_charge_input, esp_input], outputs=out, name=name)
+        inputs=[node_input, xyz_input, edge_index_input, angle_index_input, total_charge_input, esp_input, esp_grad_input], outputs=out, name=name)
 
     model.__kgcnn_model_version__ = __model_version__
     return model
@@ -274,7 +278,7 @@ def make_model_behler_charge_separat(inputs: list = None,
     local_node_energy = RelationalMLP(**mlp_local_kwargs)([rep_charge, node_input])
     eng_short = PoolingNodes(**node_pooling_args)(local_node_energy)
 
-    charge = ks.layers.Lambda(lambda x: x, name="charge")(q_local)
+    charge = ks.layers.Lambda(lambda x: tf.convert_to_tensor(x.to_tensor()), name="charge")(q_local)
     eng_total = ks.layers.Add(name="energy")([eng_short, eng_elec, eng_qmmm])
 
     # Output embedding choice

@@ -22,7 +22,7 @@ from kgcnn.graph.base import GraphDict
 from kgcnn.data.base import MemoryGraphList, MemoryGraphDataset
 from kgcnn.data.qm import QMDataset
 from kgcnn.training.scheduler import LinearLearningRateScheduler
-from kgcnn.literature.HDNNP4th import make_model_behler_charge_separat as make_model
+from kgcnn.literature.HDNNP4th import make_model_behler as make_model
 from kgcnn.data.transform.scaler.force import EnergyForceExtensiveLabelScaler
 from kgcnn.utils.plots import plot_predict_true, plot_train_test_loss, plot_test_set_prediction, print_error_dict
 from kgcnn.utils.devices import set_devices_gpu
@@ -54,13 +54,8 @@ MAX_ELEMENTS = 30 # Length of the array with the symmetry function parameters, t
 ELEMENTAL_MAPPING = [1, 6, 7, 8] # Parameters can be given individually per element. This list maps the parameters to its element
 
 # CHARGE MODEL HYPER PARAMETERS
-CHARGE_EPOCHS                = 500 # Epochs during training
-CHARGE_INITIAL_LEARNING_RATE = 1e-3 # Initial learning rate during training
-CHARGE_FINAL_LEARNING_RATE   = 1e-8 # Initial learning rate during training
 CHARGE_HIDDEN_LAYERS         = [15] # List of number of nodes per hidden layer 
 CHARGE_HIDDEN_ACTIVATION     = ["tanh"] # List of activation functions of hidden layers
-CHARGE_BATCH_SIZE            = 128 # Batch size during training
-CHARGE_EARLY_STOPPING        = 0 # Patience of Early Stopping. If 0, no Early Stopping, Early Stopping breaks loss history plot
 
 # ENERGY MODEL HYPER PARAMETERS
 ENERGY_EPOCHS                = 500 # Epochs during training
@@ -70,7 +65,9 @@ ENERGY_HIDDEN_LAYERS         = [35, 35] # List of number of nodes per hidden lay
 ENERGY_HIDDEN_ACTIVATION     = ["tanh", "tanh"] # List of activation functions of hidden layers
 ENERGY_BATCH_SIZE            = 128 # Batch size during training
 ENERGY_EARLY_STOPPING        = 0 # Patience of Early Stopping. If 0, no Early Stopping, Early Stopping breaks loss history plot
-FORCE_LOSS_FACTOR            = 200 # Weight of the force loss relative to the energy loss, gets normalized
+CHARGE_LOSS_FACTOR           = 50.0 # Weight of the charge loss
+ENERGY_LOSS_FACTOR           = 1.0 # Weight of the energy loss 
+FORCE_LOSS_FACTOR            = 200.0 # Weight of the force loss
 
 N_SPLITS = 3 # Number of splits for cross-validation, used in KFold
 
@@ -99,13 +96,8 @@ CONFIG_DATA = {
     "eta_ang_array": ETA_ANG_ARRAY,
     "max_elements": MAX_ELEMENTS,
     "elemental_mapping": ELEMENTAL_MAPPING,
-    "charge_epochs": CHARGE_EPOCHS,
-    "charge_initial_learning_rate": CHARGE_INITIAL_LEARNING_RATE,
-    "charge_final_learning_rate": CHARGE_FINAL_LEARNING_RATE,
     "charge_hidden_layers": CHARGE_HIDDEN_LAYERS,
     "charge_hidden_activation": CHARGE_HIDDEN_ACTIVATION,
-    "charge_batch_size": CHARGE_BATCH_SIZE,
-    "charge_early_stopping": CHARGE_EARLY_STOPPING,
     "energy_epochs": ENERGY_EPOCHS,
     "energy_initial_learning_rate": ENERGY_INITIAL_LEARNING_RATE,
     "energy_final_learning_rate": ENERGY_FINAL_LEARNING_RATE,
@@ -113,6 +105,8 @@ CONFIG_DATA = {
     "energy_hidden_activation": ENERGY_HIDDEN_ACTIVATION,
     "energy_batch_size": ENERGY_BATCH_SIZE,
     "energy_early_stopping": ENERGY_EARLY_STOPPING,
+    "charge_loss_factor": CHARGE_LOSS_FACTOR,
+    "energy_loss_factor": ENERGY_LOSS_FACTOR,
     "force_loss_factor": FORCE_LOSS_FACTOR,
     "n_splits": N_SPLITS,
     "use_scaler": USE_SCALER,
@@ -150,93 +144,21 @@ def load_data(config: Dict) -> MemoryGraphDataset:
     
     return dataset
 
-def train_single_fold(train_val_dataset: MemoryGraphDataset,
-                     train_index: np.ndarray,
-                     val_index: np.ndarray,
-                     model_config: Dict,
-                     charge_output: Dict,
-                     outputs: List[Dict],
-                     train_config: Dict,
-                     model_index: int,
-                     ) -> Tuple[EnergyForceModel, tf.keras.callbacks.History, tf.keras.callbacks.History]:
-    """Train a single fold of the cross-validation."""
+def create_model(train_config: Dict, model_config: Dict) -> EnergyForceModel:
+    """
+    Create and return charge model, energy model, and energy-force model.
     
-    # Prepare data for this fold
-    x_train = train_val_dataset[train_index].tensor(model_config["inputs"])
-    x_val = train_val_dataset[val_index].tensor(model_config["inputs"])
-    charge_train = train_val_dataset[train_index].tensor(charge_output)
-    charge_val = train_val_dataset[val_index].tensor(charge_output)
-    energy_force_train = train_val_dataset[train_index].tensor(outputs)
-    energy_force_val = train_val_dataset[val_index].tensor(outputs)
-
-    # Extract training parameters
-    charge_initial_learning_rate = train_config["charge_initial_learning_rate"]
-    charge_final_learning_rate = train_config["charge_final_learning_rate"]
-    charge_epochs = train_config["charge_epochs"]
-    charge_early_stopping = train_config["charge_early_stopping"]
-    charge_batch_size = train_config["charge_batch_size"]
-
-    energy_initial_learning_rate = train_config["energy_initial_learning_rate"]
-    energy_final_learning_rate = train_config["energy_final_learning_rate"]
-    energy_epochs = train_config["energy_epochs"]
-    energy_early_stopping = train_config["energy_early_stopping"]
-    energy_batch_size = train_config["energy_batch_size"]
-    force_loss_factor = train_config["force_loss_factor"]
-    model_prefix = train_config["model_prefix"]
-
-    # Create models
-    model_charge, model_energy = make_model(**model_config)
-
-    # Train charge model
-    model_charge.compile(
-        loss="mean_squared_error",
-        optimizer=ks.optimizers.Adam(),
-        metrics=None
-    )
-
-    callbacks = []
-    scheduler = LinearLearningRateScheduler(
-        learning_rate_start=charge_initial_learning_rate,
-        learning_rate_stop=charge_final_learning_rate,
-        epo_min=0,
-        epo=charge_epochs)
-    callbacks.append(scheduler)
-
-    if charge_early_stopping > 0:
-        earlystop = ks.callbacks.EarlyStopping(
-            monitor="val_loss",
-            mode="min",
-            patience=charge_early_stopping,
-            verbose=0
-        )
-        callbacks.append(earlystop)
-
-    if train_config["use_wandb"]:
-        wandb_wizard.init_wandb(train_config)
-        callbacks.append(wandb_wizard.construct_wandb_callback(key_prefix="Charge"))
-
-    start = time.process_time()
-    charge_hist = model_charge.fit(
-        x_train, charge_train,
-        callbacks=callbacks,
-        validation_data=(x_val, charge_val),
-        epochs=charge_epochs,
-        batch_size=charge_batch_size,
-        verbose=2
-    )
-    stop = time.process_time()
-    print("Charge model training time: ", str(timedelta(seconds=stop - start)))
-
-    # Transfer charge model weights and freeze layers
-    charge_mlp_layer = model_energy.layers[10]
-    assert "relational_mlp" in charge_mlp_layer.name, "This is not a relational MLP, double check your model"
-    charge_mlp_layer.trainable = False
-    electrostatic_layer = model_energy.layers[13]
-    assert "electrostatic_layer" in electrostatic_layer.name, "This is not an electrostatic_layer, double check your model"
-    electrostatic_layer.trainable = False
-
+    Args:
+        model_config: Configuration dictionary for model creation
+        
+    Returns:
+        Tuple of (charge_model, energy_model, energy_force_model)
+    """
+    # Create the base models
+    model_energy = make_model(**model_config)
+    
     # Create energy-force model
-    model_energy_force: EnergyForceModel = EnergyForceModel(
+    model_energy_force = EnergyForceModel(
         model_energy=model_energy,
         energy_output=1,
         esp_input=5,
@@ -247,13 +169,49 @@ def train_single_fold(train_val_dataset: MemoryGraphDataset,
         is_physical_force=False
     )
 
+    charge_loss_factor = train_config["charge_loss_factor"]
+    energy_loss_factor = train_config["energy_loss_factor"]
+    force_loss_factor = train_config["force_loss_factor"]
+    # Normalize loss weights to sum to 1.0
+    total_weight = charge_loss_factor + energy_loss_factor + force_loss_factor
+    norm_charge_weight = charge_loss_factor / total_weight
+    norm_energy_weight = energy_loss_factor / total_weight
+    norm_force_weight = force_loss_factor / total_weight
+    
     model_energy_force.compile(
         loss=["mean_squared_error", "mean_squared_error", "mean_squared_error"],
         optimizer=ks.optimizers.Adam(),
         metrics=None,
-        loss_weights=[0, 1/force_loss_factor, 1-1/force_loss_factor]
+        loss_weights=[norm_charge_weight, norm_energy_weight, norm_force_weight]
     )
+    return model_energy_force
+
+def train_single_fold(train_val_dataset: MemoryGraphDataset,
+                     train_index: np.ndarray,
+                     val_index: np.ndarray,
+                     model_energy_force: EnergyForceModel,
+                     model_config: Dict,
+                     outputs: List[Dict],
+                     train_config: Dict,
+                     model_index: int,
+                     initial_epoch: int = 0,
+                     ) -> tf.keras.callbacks.History:
+    """Train a single fold of the cross-validation."""
     
+    # Prepare data for this fold
+    x_train = train_val_dataset[train_index].tensor(model_config["inputs"])
+    x_val = train_val_dataset[val_index].tensor(model_config["inputs"])
+    energy_force_train = train_val_dataset[train_index].tensor(outputs)
+    energy_force_val = train_val_dataset[val_index].tensor(outputs)
+
+    # Extract training parameters
+    energy_initial_learning_rate = train_config["energy_initial_learning_rate"]
+    energy_final_learning_rate = train_config["energy_final_learning_rate"]
+    energy_epochs = train_config["energy_epochs"]
+    energy_early_stopping = train_config["energy_early_stopping"]
+    energy_batch_size = train_config["energy_batch_size"]
+    model_prefix = train_config["model_prefix"]
+
     # Train energy-force model
     callbacks = []
     scheduler = LinearLearningRateScheduler(
@@ -281,6 +239,7 @@ def train_single_fold(train_val_dataset: MemoryGraphDataset,
         callbacks=callbacks,
         validation_data=(x_val, energy_force_val),
         epochs=energy_epochs,
+        initial_epoch=initial_epoch,
         batch_size=energy_batch_size,
         verbose=2
     )
@@ -290,16 +249,15 @@ def train_single_fold(train_val_dataset: MemoryGraphDataset,
     # Save the model
     model_energy_force.save(model_prefix + str(model_index))
     
-    return model_energy_force, charge_hist, hist
+    return hist
 
 def train_models(dataset: MemoryGraphDataset,
+                models: List[EnergyForceModel],
                 model_config: Dict,
-                charge_output: Dict,
                 outputs: List[Dict],
                 train_config: Dict
                 ) -> Tuple[
                     EnergyForceModel,
-                    List[tf.keras.callbacks.History],
                     List[tf.keras.callbacks.History],
                     Optional[EnergyForceExtensiveLabelScaler]
                 ]:
@@ -328,7 +286,6 @@ def train_models(dataset: MemoryGraphDataset,
         kf = KFold(n_splits=n_splits, random_state=42, shuffle=True)
     else:
         kf = KFold(n_splits=3, random_state=42, shuffle=True)
-    charge_hists = []
     hists = []
     indices = [[],[],test_index]  # Store train, val, and test indices
     model_index = 0
@@ -336,16 +293,20 @@ def train_models(dataset: MemoryGraphDataset,
     for train_index, val_index in kf.split(X=np.expand_dims(train_val_index, axis=-1)):
         train_index, val_index = val_index, train_index # Switched train and test indices to keep training data separate
         
+        model_energy_force = models[model_index]
+        
         # Train single fold
-        model_energy_force, charge_hist, hist = train_single_fold(
+        initial_epoch = train_config.get("initial_epoch", 0)
+        hist = train_single_fold(
             train_val_dataset=train_val_dataset,
             train_index=train_index,
             val_index=val_index,
+            model_energy_force=model_energy_force,
             model_config=model_config,
-            charge_output=charge_output,
             outputs=outputs,
             train_config=train_config,
             model_index=model_index,
+            initial_epoch=initial_epoch,
         )
 
         # Evaluate the model after training
@@ -366,7 +327,6 @@ def train_models(dataset: MemoryGraphDataset,
         )
 
         # Store results (using absolute indices)
-        charge_hists.append(charge_hist)
         hists.append(hist)
         indices[0].append(abs_train_index)
         indices[1].append(abs_val_index)
@@ -374,23 +334,18 @@ def train_models(dataset: MemoryGraphDataset,
         if n_splits == 1:
             break
 
-    save_load_utils.save_history(charge_hists, filename="charge_histories.pkl")
     save_load_utils.save_history(hists, filename="histories.pkl")
     save_load_utils.save_training_indices(*indices)
 
-    plot_train_test_loss(charge_hists,
-    filepath="", data_unit="e",
-    model_name="HDNNP", dataset_name=dataset.dataset_name, file_name="charge_loss.png", show_fig=False)
-
     plot_train_test_loss(hists,
-        filepath="", data_unit="eV",
-        model_name="HDNNP", dataset_name=dataset.dataset_name, file_name="loss.png", show_fig=False)
+     filepath="", data_unit="eV",
+     model_name="HDNNP", dataset_name=dataset.dataset_name, file_name="loss.png", show_fig=False)
 
     model_energy_force.summary()
     energy_model = model_energy_force._model_energy
     energy_model.summary()
     
-    return model_energy_force, indices, charge_hists, hists, scaler
+    return model_energy_force, indices, hists, scaler
 
 def evaluate_model(dataset: MemoryGraphDataset,
                    model_energy_force: EnergyForceModel,
@@ -597,8 +552,6 @@ def main(config: Dict[str, Any]) -> None:
         },
     }
 
-    charge_output = {"name": "charge", "shape": (None, 1), "ragged": True}
-
     outputs = [
         {"name": "charge", "shape": (None, 1), "ragged": True},
         {"name": "graph_labels", "ragged": False},
@@ -606,7 +559,8 @@ def main(config: Dict[str, Any]) -> None:
     ]
 
     dataset = load_data(config)
-    model_energy_force, indices, charge_hists, hists, scaler = train_models(dataset, model_config, charge_output, outputs, config)
+    models = [create_model(config, model_config) for _ in range(config["n_splits"])]
+    model_energy_force, indices, hists, scaler = train_models(dataset, models, model_config, outputs, config)
     print("Training and evaluation completed successfully.")
 
 if __name__ == "__main__":
