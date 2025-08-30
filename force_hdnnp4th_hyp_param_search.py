@@ -1,11 +1,3 @@
-#!/usr/bin/env python
-#$ -l qu=gtx
-#$ -cwd
-#$ -n hyp_search
-#$ -o train.out
-#$ -e train.err
-#$ -q gtx01a,gtx01b,gtx01c,gtx01d,gtx02a,gtx02b,gtx02c,gtx02d,gtx03a,gtx03b,gtx03c,gtx03d,gtx05a,gtx05b,gtx05c,gtx05d,gtx06a,gtx06b,gtx06c,gtx06d,gtx09a,gtx09b,gtx09c,gtx09d,gtx10a,gtx10b,gtx10c,gtx10d
-
 import argparse
 from datetime import timedelta
 import json
@@ -92,10 +84,10 @@ class BaseHDNNPTuner:
         ])
         eta_array_choice = hp.Choice("eta_array", [
             "0.0 0.08 0.3",
-            # #"0.03 0.16 0.5",
-            # #"0.0 0.03 0.08 0.16 0.3 0.5",
-            # "0.0 0.06 0.16 0.32 0.6 0.8 1.0",
-            # #"0.0 0.03 0.08 0.16 0.3 0.5 0.6 0.75 0.9 1.0"
+            #"0.03 0.16 0.5",
+            #"0.0 0.03 0.08 0.16 0.3 0.5",
+            "0.0 0.06 0.16 0.32 0.6 0.8 1.0",
+            #"0.0 0.03 0.08 0.16 0.3 0.5 0.6 0.75 0.9 1.0"
         ])
         lambd_array_choice = hp.Choice("lamb_array", [
             "-1 1",
@@ -104,16 +96,16 @@ class BaseHDNNPTuner:
         ])
         zeta_array_choice = hp.Choice("zeta_array", [
             "2 8 16",
-            # #"1 4 8 16",
-            # #"1 2 4 8 16",
-            # "1 2 4 8 16 32"
+            #"1 4 8 16",
+            #"1 2 4 8 16",
+            "1 2 4 8 16 32"
         ])
 
         charge_max_layers = 1
         charge_n_layers = hp.Int("charge_n_layers", 1, charge_max_layers, 1)
         charge_neurons = []
-        #charge_max_neurons = 51
-        charge_max_neurons = 26
+        charge_max_neurons = 51
+        #charge_max_neurons = 26
         for i in range(charge_max_layers):
             charge_neuron = hp.Int(f"charge_neurons_{i}", 25, charge_max_neurons, 25)
             charge_neurons.append(charge_neuron)
@@ -123,19 +115,19 @@ class BaseHDNNPTuner:
                                     #["relu", "tanh", "elu", "swish", "leaky_relu"])
                                     ["tanh"])        
         
-        #energy_max_layers = 3
-        energy_max_layers = 1
+        energy_max_layers = 3
+        #energy_max_layers = 1
         energy_n_layers = hp.Int("energy_n_layers", 1, energy_max_layers, 1)
         energy_neurons = []
-        # energy_max_neurons = 276
-        energy_max_neurons = 26
+        energy_max_neurons = 276
+        #energy_max_neurons = 26
         for i in range(energy_max_layers):
             energy_neuron = hp.Int(f"energy_neurons_{i}", 25, energy_max_neurons, 50)
             energy_neurons.append(energy_neuron)
             energy_max_neurons = energy_neuron + 1   # Ensure decreasing order
         energy_activation = hp.Choice("energy_activation", 
-                                    # ["relu", "tanh", "elu", "swish", "leaky_relu"])
-                                    ["tanh"])  
+                                    ["relu", "tanh", "elu", "swish", "leaky_relu"])
+                                    #["tanh"])  
 
         raw_hp = {
             "rs_array_choice": rs_array_choice,
@@ -269,21 +261,10 @@ class MyHyperModel(kt.HyperModel, BaseHDNNPTuner):
         config = self._hyp_search_config.copy()
         hp_config = self._hp_config
         model_config = self._model_config
-        charge_output = self._charge_output
         outputs = self._outputs
 
         if not hp_config["is_valid"]:
             return {"val_output_3_loss": 9999.0}  # Return dict for proper metric handling
-
-        # Handle Hyperband-specific hyperparameters
-        
-        if "tuner/epochs" in hp.values:
-            total_epochs = hp.get("tuner/epochs")
-            initial_epoch = hp.get("tuner/initial_epoch")
-            config["energy_epochs"] = total_epochs
-            config["initial_epoch"] = initial_epoch
-        else:
-            config["initial_epoch"] = 0
 
         dataset = load_data(config)
         dataset_name = dataset.dataset_name
@@ -292,8 +273,7 @@ class MyHyperModel(kt.HyperModel, BaseHDNNPTuner):
         dataset = dataset[subsample_indices]
         dataset.dataset_name = dataset_name  # hack to keep the name after subsampling
         
-        model_energy_force, test_index, hists, scaler = train_models(dataset, [model], model_config, outputs, config)
-    
+        model_energy_force, indices, hists, scaler = train_models(dataset, [model], model_config, outputs, config, **kwargs)
         
         return hists[0]
 
@@ -387,26 +367,26 @@ if __name__ == "__main__":
     config: Dict[str, Any] = parse_args()
     
     hypermodel = MyHyperModel(hyp_search_config=config)
-    # tuner = kt.Hyperband(
-    #     hypermodel=hypermodel,
-    #     objective=kt.Objective("val_output_3_loss", direction="min"),
-    #     max_epochs=200,
-    #     factor=2,
-    #     hyperband_iterations=1,
-    #     overwrite=False,
-    #     directory=TRIAL_FOLDER_NAME,
-    #     project_name=config["project_name"],
-    #     max_consecutive_failed_trials=1
-    # )
-    tuner = kt.GridSearch(
+    tuner = kt.Hyperband(
         hypermodel=hypermodel,
         objective=kt.Objective("val_output_3_loss", direction="min"),
-        max_trials=25,
+        max_epochs=200,
+        factor=2,
+        hyperband_iterations=1,
         overwrite=False,
         directory=TRIAL_FOLDER_NAME,
         project_name=config["project_name"],
         max_consecutive_failed_trials=1
     )
+    # tuner = kt.GridSearch(
+    #     hypermodel=hypermodel,
+    #     objective=kt.Objective("val_output_3_loss", direction="min"),
+    #     max_trials=25,
+    #     overwrite=False,
+    #     directory=TRIAL_FOLDER_NAME,
+    #     project_name=config["project_name"],
+    #     max_consecutive_failed_trials=1
+    # )
     tuner.search_space_summary()
     tuner.search() 
     tuner.results_summary(num_trials=10)

@@ -187,15 +187,15 @@ def create_model(train_config: Dict, model_config: Dict) -> EnergyForceModel:
     return model_energy_force
 
 def train_single_fold(train_val_dataset: MemoryGraphDataset,
-                     train_index: np.ndarray,
-                     val_index: np.ndarray,
-                     model_energy_force: EnergyForceModel,
-                     model_config: Dict,
-                     outputs: List[Dict],
-                     train_config: Dict,
-                     model_index: int,
-                     initial_epoch: int = 0,
-                     ) -> tf.keras.callbacks.History:
+                        train_index: np.ndarray,
+                        val_index: np.ndarray,
+                        model_energy_force: EnergyForceModel,
+                        model_config: Dict,
+                        outputs: List[Dict],
+                        train_config: Dict,
+                        model_index: int,
+                        **kwargs
+                        ) -> tf.keras.callbacks.History:
     """Train a single fold of the cross-validation."""
     
     # Prepare data for this fold
@@ -234,14 +234,16 @@ def train_single_fold(train_val_dataset: MemoryGraphDataset,
         callbacks.append(wandb_wizard.construct_wandb_callback(key_prefix="EnergyForce"))
 
     start = time.process_time()
+    kwargs["epochs"] = kwargs.get("epochs", train_config["energy_epochs"])
+    kwargs["initial_epoch"] = kwargs.get("initial_epoch", train_config.get("initial_epoch", 0))
+    kwargs["callbacks"] = kwargs.get("callbacks", []) + callbacks
     hist = model_energy_force.fit(
         x_train, energy_force_train,
-        callbacks=callbacks,
         validation_data=(x_val, energy_force_val),
-        epochs=energy_epochs,
-        initial_epoch=initial_epoch,
         batch_size=energy_batch_size,
-        verbose=2
+        verbose=2,
+        shuffle=True,
+        **kwargs
     )
     stop = time.process_time()
     print("Energy-force model training time: ", str(timedelta(seconds=stop - start)))
@@ -255,13 +257,14 @@ def train_models(dataset: MemoryGraphDataset,
                 models: List[EnergyForceModel],
                 model_config: Dict,
                 outputs: List[Dict],
-                train_config: Dict
+                train_config: Dict,
+                **kwargs
                 ) -> Tuple[
                     EnergyForceModel,
                     List[tf.keras.callbacks.History],
                     Optional[EnergyForceExtensiveLabelScaler]
                 ]:
-    print(model_config)
+    #print(model_config)
 
     n_splits = train_config["n_splits"]
     use_scaler = train_config["use_scaler"]
@@ -296,7 +299,6 @@ def train_models(dataset: MemoryGraphDataset,
         model_energy_force = models[model_index]
         
         # Train single fold
-        initial_epoch = train_config.get("initial_epoch", 0)
         hist = train_single_fold(
             train_val_dataset=train_val_dataset,
             train_index=train_index,
@@ -306,7 +308,7 @@ def train_models(dataset: MemoryGraphDataset,
             outputs=outputs,
             train_config=train_config,
             model_index=model_index,
-            initial_epoch=initial_epoch,
+            **kwargs
         )
 
         # Evaluate the model after training
@@ -316,15 +318,15 @@ def train_models(dataset: MemoryGraphDataset,
         abs_train_index = train_val_index[train_index]
         abs_val_index = train_val_index[val_index]
         
-        evaluate_model(
-            dataset=dataset,
-            model_energy_force=model_energy_force,
-            indices=(abs_train_index, abs_val_index, test_index),
-            model_config=model_config,
-            train_config=train_config,
-            scaler=scaler,
-            model_index=model_index
-        )
+        # evaluate_model(
+        #     dataset=dataset,
+        #     model_energy_force=model_energy_force,
+        #     indices=(abs_train_index, abs_val_index, test_index),
+        #     model_config=model_config,
+        #     train_config=train_config,
+        #     scaler=scaler,
+        #     model_index=model_index
+        # )
 
         # Store results (using absolute indices)
         hists.append(hist)
@@ -334,16 +336,16 @@ def train_models(dataset: MemoryGraphDataset,
         if n_splits == 1:
             break
 
-    save_load_utils.save_history(hists, filename="histories.pkl")
-    save_load_utils.save_training_indices(*indices)
+    # save_load_utils.save_history(hists, filename="histories.pkl")
+    # save_load_utils.save_training_indices(*indices)
 
-    plot_train_test_loss(hists,
-     filepath="", data_unit="eV",
-     model_name="HDNNP", dataset_name=dataset.dataset_name, file_name="loss.png", show_fig=False)
+    # plot_train_test_loss(hists,
+    #     filepath="", data_unit="eV",
+    #     model_name="HDNNP", dataset_name=dataset.dataset_name, file_name="loss.png", show_fig=False)
 
-    model_energy_force.summary()
-    energy_model = model_energy_force._model_energy
-    energy_model.summary()
+    # model_energy_force.summary()
+    # energy_model = model_energy_force._model_energy
+    # energy_model.summary()
     
     return model_energy_force, indices, hists, scaler
 
