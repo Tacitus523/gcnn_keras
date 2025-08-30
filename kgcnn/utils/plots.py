@@ -150,15 +150,15 @@ def plot_predict_true(y_predict, y_true, data_unit: list = None, model_name: str
         mae_valid = np.mean(np.abs(delta_valid[~np.isnan(delta_valid)]))
         rmse_valid = np.sqrt(np.mean((delta_valid[~np.isnan(delta_valid)])**2))
         if error == "MAE":
-            plt.scatter(y_predict[:, i], y_true[:, i], marker=".", alpha=0.3,
+            plt.scatter(y_true[:, i], y_predict[:, i], marker=".", alpha=0.3,
                         label=target_names[i] + " MAE: {0:0.4f} ".format(mae_valid) + "[" + data_unit[i] + "]")
         elif error == "RMSE":
-             plt.scatter(y_predict[:, i], y_true[:, i], marker=".", alpha=0.3,
+             plt.scatter(y_true[:, i], y_predict[:, i], marker=".", alpha=0.3,
                         label=target_names[i] + " RMSE: {0:0.4f} ".format(rmse_valid) + "[" + data_unit[i] + "]")       
     min_max = np.amin(y_true[~np.isnan(y_true)]), np.amax(y_true[~np.isnan(y_true)])
     plt.plot(np.arange(*min_max, 0.05), np.arange(*min_max, 0.05), color='red')
-    plt.xlabel('Predicted')
-    plt.ylabel('Actual')
+    plt.xlabel('Reference')
+    plt.ylabel('Prediction')
     plt.title("Prediction of " + model_name + " for " + dataset_name)
     plt.legend(loc='upper left', fontsize='x-large')
     if filepath is not None:
@@ -174,7 +174,7 @@ def plot_test_set_prediction(data: pd.DataFrame, observation: str, prediction: s
     LABELSIZE = 15
     ALPHA = 0.3
     if "at_types" in data.columns:
-        plot = sns.lmplot(y=observation, x=prediction, data=data, hue="at_types", markers=".",
+        plot = sns.lmplot(x=observation, y=prediction, data=data, hue="at_types", markers=".",
             scatter_kws={"alpha": ALPHA},
             line_kws={"linewidth": 3},
             height=6,
@@ -184,12 +184,12 @@ def plot_test_set_prediction(data: pd.DataFrame, observation: str, prediction: s
         for legend_handle in legend.legendHandles: 
             legend_handle.set_alpha(1)
     else:
-        plot = sns.lmplot(y=observation, x=prediction, data=data, markers=".",
+        plot = sns.lmplot(x=observation, y=prediction, data=data, markers=".",
             scatter_kws={"alpha": ALPHA},
             line_kws={"linewidth": 1},
             height=6)
-    plt.xlabel(f"Prediction {title} [{unit}]", fontsize=FONTSIZE)
-    plt.ylabel(f"Reference {title} [{unit}]",fontsize=FONTSIZE)
+    plt.xlabel(f"Reference {title} [{unit}]",fontsize=FONTSIZE)
+    plt.ylabel(f"Prediction {title} [{unit}]", fontsize=FONTSIZE)
     value_min = data[[observation,prediction]].min().min()
     value_max = data[[observation,prediction]].max().max()
     plt.plot([value_min-1, value_max+1], [value_min-1, value_max+1], "k")
