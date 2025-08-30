@@ -1,0 +1,215 @@
+import argparse
+from datetime import timedelta
+import json
+import os
+import time
+from typing import Any, Dict, List, Optional, Tuple
+import warnings
+
+import numpy as np
+
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+warnings.filterwarnings("ignore")
+
+import tensorflow as tf
+tf.get_logger().setLevel("ERROR")
+ks=tf.keras
+print(tf.config.list_physical_devices('GPU'))
+import keras_tuner as kt
+
+from kgcnn.utils import constants, callbacks, activations
+from kgcnn.utils.devices import set_devices_gpu
+
+from force_schnet import load_data, train_models, evaluate_model, CONFIG_DATA, create_model
+
+TRIAL_FOLDER_NAME = "trials"
+PROJECT_NAME = "schnet_hyp_search"
+
+MAX_DATASET_SIZE = 5000  # we will subsample the dataset to this size for speed
+
+# Set default configuration from global constants
+CONFIG_DATA.update({
+    "project_name": PROJECT_NAME,
+    "energy_epochs": 25,
+    "n_splits": 1,
+    "max_dataset_size": MAX_DATASET_SIZE,
+})
+
+def parse_args() -> Dict[str, Any]:
+    # Ability to restrict the model to only use a certain GPU, which is passed with python -g gpu_id, or to use a config file
+    ap = argparse.ArgumentParser(description="Handle gpu_ids and training parameters")
+    ap.add_argument("-g", "--gpuid", type=int)
+    ap.add_argument("-c", "--conf", default=None, type=str, dest="config_path", action="store", required=False, help="Path to config file, default: None", metavar="config")
+    args = ap.parse_args()
+    if args.gpuid is not None:
+        set_devices_gpu([args.gpuid])
+
+    config = CONFIG_DATA.copy()
+    if args.config_path is not None:
+        try:
+            with open(args.config_path, 'r') as config_file:
+                file_config = json.load(config_file)
+                file_config = {k.lower(): v for k, v in file_config.items()}
+        except FileNotFoundError:
+            print(f"Config file {args.config_path} not found.")
+            exit(1)
+        config.update(file_config)
+
+    for key, value in config.items():
+        print(f"{key}: {value}")
+    return config
+    
+
+class BaseSchnetTuner:
+    """Base class for SchNet tuners with common hyperparameter building logic."""
+    _outputs = [
+        {"name": "graph_labels", "ragged": False},
+        {"name": "force", "shape": (None, 3), "ragged": True}
+    ]
+
+    def _build_raw_hyperparameters(self, hp: kt.HyperParameters) -> Dict[str, Any]:
+        """Build raw hyperparameters from the tuner."""
+
+        # Model architecture hyperparameters
+        input_embedding_dim = hp.Choice("input_embedding_dim", [64, 128, 256])
+        interaction_units = hp.Choice("interaction_units", [64, 128, 256])
+        model_depth = hp.Int("model_depth", 3, 8, 1)
+        
+        # Gaussian basis hyperparameters
+        gauss_bins = hp.Int("gauss_bins", 20, 50, 5)
+        gauss_distance = hp.Choice("gauss_distance", [4.0, 5.0, 6.0])
+        gauss_offset = hp.Choice("gauss_offset", [0.0, 0.5])
+        gauss_sigma = hp.Choice("gauss_sigma", [0.2, 0.4, 0.6])
+        
+        # Output MLP hyperparameters
+        output_mlp_choice = hp.Choice("output_mlp_layers", [
+            "128 64 1",
+            "256 128 1", 
+            "128 128 64 1",
+            "256 128 64 1"
+        ])
+
+        raw_hp = {
+            "input_embedding_dim": input_embedding_dim,
+            "interaction_units": interaction_units,
+            "model_depth": model_depth,
+            "gauss_bins": gauss_bins,
+            "gauss_distance": gauss_distance,
+            "gauss_offset": gauss_offset,
+            "gauss_sigma": gauss_sigma,
+            "output_mlp_choice": output_mlp_choice
+        }
+        return raw_hp
+
+    def _build_hyperparameters(self, hp: kt.HyperParameters) -> Dict[str, Any]:
+        """Build model configuration from hyperparameters."""
+
+        raw_hp = self._build_raw_hyperparameters(hp)
+
+        # Output MLP units
+        output_mlp_units = [int(x) for x in raw_hp["output_mlp_choice"].split()]
+
+        return {
+            "input_embedding_dim": raw_hp["input_embedding_dim"],
+            "interaction_units": raw_hp["interaction_units"],
+            "model_depth": raw_hp["model_depth"],
+            "gauss_bins": raw_hp["gauss_bins"],
+            "gauss_distance": raw_hp["gauss_distance"],
+            "gauss_offset": raw_hp["gauss_offset"],
+            "gauss_sigma": raw_hp["gauss_sigma"],
+            "output_mlp_units": output_mlp_units,
+            "is_valid": True  # All SchNet configurations are valid
+        }
+    
+    def _build_model_config(self, hp_config: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
+        """Build the complete model configuration."""
+        return {
+            "name": "Schnet",
+            "inputs": [
+                {"shape": [None], "name": "node_number", "dtype": "int64", "ragged": True},
+                {"shape": [None, 3], "name": "node_coordinates", "dtype": "float32", "ragged": True},
+                {"shape": [None, 2], "name": "range_indices", "dtype": "int64", "ragged": True},
+            ],
+            "input_embedding": {"node": {"input_dim": 95, "output_dim": hp_config["input_embedding_dim"]}},
+            "interaction_args": {
+                "units": hp_config["interaction_units"], "use_bias": True, "activation": "kgcnn>shifted_softplus",
+                "cfconv_pool": "sum"
+            },
+            "node_pooling_args": {"pooling_method": "sum"},
+            "depth": hp_config["model_depth"],
+            "gauss_args": {"bins": hp_config["gauss_bins"], "distance": hp_config["gauss_distance"], 
+                          "offset": hp_config["gauss_offset"], "sigma": hp_config["gauss_sigma"]},
+            "verbose": 10,
+            "last_mlp": {"use_bias": [True] * len(hp_config["output_mlp_units"]), 
+                        "units": hp_config["output_mlp_units"],
+                        "activation": ['kgcnn>shifted_softplus'] * (len(hp_config["output_mlp_units"]) - 1) + ['linear']},
+            "output_embedding": "graph", "output_to_tensor": True,
+            "use_output_mlp": False,
+            "output_mlp": None
+        }
+
+class MyHyperModel(kt.HyperModel, BaseSchnetTuner):
+    def __init__(self, hyp_search_config: Optional[Dict[str, Any]] = None):
+        super().__init__()
+        self._hyp_search_config: Optional[Dict[str, Any]] = hyp_search_config
+        self._hp_config: Optional[Dict[str, Any]] = None
+        self._model_config: Optional[Dict[str, Any]] = None
+
+    def build(self, hp):
+        hp_config = self._build_hyperparameters(hp)
+        self._hp_config = hp_config
+        model_config = self._build_model_config(hp_config, self._hyp_search_config)
+        self._model_config = model_config
+        return create_model(self._hyp_search_config, model_config)
+    
+    def fit(self, hp, model, *args, **kwargs):
+        ks.backend.clear_session() # RAM is apparently not released between trials. This should clear some of it, but probably not all. https://github.com/keras-team/keras-tuner/issues/395
+        config = self._hyp_search_config.copy()
+        hp_config = self._hp_config
+        model_config = self._model_config
+        outputs = self._outputs
+
+        if not hp_config["is_valid"]:
+            return {"val_output_2_loss": 9999.0}  # Return dict for proper metric handling
+
+        dataset = load_data(config)
+        dataset_name = dataset.dataset_name
+        np.random.seed(42)
+        subsample_indices = np.random.choice(len(dataset), size=min(config["max_dataset_size"], len(dataset)), replace=False)
+        dataset = dataset[subsample_indices]
+        dataset.dataset_name = dataset_name  # hack to keep the name after subsampling
+        
+        model_energy_force, test_index, hists, scaler = train_models(dataset, [model], model_config, outputs, config, **kwargs)
+        
+        return hists[0]
+
+if __name__ == "__main__":
+    config: Dict[str, Any] = parse_args()
+    
+    hypermodel = MyHyperModel(hyp_search_config=config)
+    # tuner = kt.Hyperband(
+    #     hypermodel=hypermodel,
+    #     objective=kt.Objective("val_output_2_loss", direction="min"),
+    #     max_epochs=200,
+    #     factor=2,
+    #     hyperband_iterations=1,
+    #     overwrite=False,
+    #     directory=TRIAL_FOLDER_NAME,
+    #     project_name=config["project_name"],
+    #     max_consecutive_failed_trials=1
+    # )
+    tuner = kt.GridSearch(
+        hypermodel=hypermodel,
+        objective=kt.Objective("val_output_2_loss", direction="min"),
+        max_trials=25,
+        overwrite=False,
+        directory=TRIAL_FOLDER_NAME,
+        project_name=config["project_name"],
+        max_consecutive_failed_trials=1
+    )
+    tuner.search_space_summary()
+    tuner.search() 
+    tuner.results_summary(num_trials=10)
+    n_best_hps = tuner.get_best_hyperparameters(num_trials=10)
+    with open(os.path.join("best_hp_schnet.json"), "w") as f:
+        json.dump(n_best_hps[0].values, f, indent=2)

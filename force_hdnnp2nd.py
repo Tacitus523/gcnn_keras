@@ -134,31 +134,10 @@ def load_data(config: Dict) -> MemoryGraphDataset:
     
     return dataset
 
-def train_single_fold(train_val_dataset: MemoryGraphDataset,
-                     train_index: np.ndarray,
-                     val_index: np.ndarray,
-                     model_config: Dict,
-                     outputs: List[Dict],
-                     train_config: Dict,
-                     model_index: int,
-                     ) -> Tuple[EnergyForceModel, tf.keras.callbacks.History]:
-    """Train a single fold of the cross-validation."""
-    
-    # Prepare data for this fold
-    x_train = train_val_dataset[train_index].tensor(model_config["inputs"])
-    x_val = train_val_dataset[val_index].tensor(model_config["inputs"])
-    energy_force_train = train_val_dataset[train_index].tensor(outputs)
-    energy_force_val = train_val_dataset[val_index].tensor(outputs)
-
-    # Extract training parameters
-    energy_initial_learning_rate = train_config["energy_initial_learning_rate"]
-    energy_final_learning_rate = train_config["energy_final_learning_rate"]
-    energy_epochs = train_config["energy_epochs"]
-    energy_early_stopping = train_config["energy_early_stopping"]
-    energy_batch_size = train_config["energy_batch_size"]
+def create_model(train_config: Dict, model_config: Dict) -> EnergyForceModel:
+    """Create and return an HDNNP2nd energy-force model."""
     force_loss_factor = train_config["force_loss_factor"]
-    model_prefix = train_config["model_prefix"]
-
+    
     # Create energy model
     model_energy = make_model(**model_config)
 
@@ -181,6 +160,34 @@ def train_single_fold(train_val_dataset: MemoryGraphDataset,
         loss_weights=[0, 1/force_loss_factor, 1-1/force_loss_factor]
     )
     
+    return model_energy_force
+
+def train_single_fold(train_val_dataset: MemoryGraphDataset,
+                     train_index: np.ndarray,
+                     val_index: np.ndarray,
+                     model_energy_force: EnergyForceModel,
+                     model_config: Dict,
+                     outputs: List[Dict],
+                     train_config: Dict,
+                     model_index: int,
+                     **kwargs
+                     ) -> tf.keras.callbacks.History:
+    """Train a single fold of the cross-validation."""
+    
+    # Prepare data for this fold
+    x_train = train_val_dataset[train_index].tensor(model_config["inputs"])
+    x_val = train_val_dataset[val_index].tensor(model_config["inputs"])
+    energy_force_train = train_val_dataset[train_index].tensor(outputs)
+    energy_force_val = train_val_dataset[val_index].tensor(outputs)
+
+    # Extract training parameters
+    energy_initial_learning_rate = train_config["energy_initial_learning_rate"]
+    energy_final_learning_rate = train_config["energy_final_learning_rate"]
+    energy_epochs = train_config["energy_epochs"]
+    energy_early_stopping = train_config["energy_early_stopping"]
+    energy_batch_size = train_config["energy_batch_size"]
+    model_prefix = train_config["model_prefix"]
+
     # Train energy-force model
     callbacks = []
     scheduler = LinearLearningRateScheduler(
@@ -214,7 +221,8 @@ def train_single_fold(train_val_dataset: MemoryGraphDataset,
         validation_data=(x_val, energy_force_val),
         epochs=energy_epochs,
         batch_size=energy_batch_size,
-        verbose=2
+        verbose=2,
+        **kwargs
     )
     stop = time.process_time()
     print("Energy-force model training time: ", str(timedelta(seconds=stop - start)))
@@ -222,12 +230,14 @@ def train_single_fold(train_val_dataset: MemoryGraphDataset,
     # Save the model
     model_energy_force.save(model_prefix + str(model_index))
     
-    return model_energy_force, hist
+    return hist
 
 def train_models(dataset: MemoryGraphDataset,
+                models: List[EnergyForceModel],
                 model_config: Dict,
                 outputs: List[Dict],
-                train_config: Dict
+                train_config: Dict,
+                **kwargs
                 ) -> Tuple[
                     EnergyForceModel,
                     List[tf.keras.callbacks.History],
@@ -260,7 +270,10 @@ def train_models(dataset: MemoryGraphDataset,
     )
     train_val_dataset = dataset[train_val_index]
 
-    kf = KFold(n_splits=n_splits, random_state=42, shuffle=True)
+    if n_splits > 1:
+        kf = KFold(n_splits=n_splits, random_state=42, shuffle=True)
+    else:
+        kf = KFold(n_splits=3, random_state=42, shuffle=True)
     hists = []
     indices = [[],[],test_index]  # Store train, val, and test indices
     model_index = 0
@@ -272,13 +285,16 @@ def train_models(dataset: MemoryGraphDataset,
         indices[0].append(train_val_index[train_index])
         indices[1].append(train_val_index[val_index])
         
-        model_energy_force, hist = train_single_fold(
+        model_energy_force = models[model_index]
+        hist = train_single_fold(
             train_val_dataset, train_index, val_index,
-            model_config, outputs, train_config, model_index
+            model_energy_force, model_config, outputs, train_config, model_index, **kwargs
         )
         
         hists.append(hist)
         model_index += 1
+        if n_splits == 1:
+            break
 
     save_load_utils.save_history(hists, filename="histories.pkl")
     save_load_utils.save_training_indices(*indices)
@@ -531,7 +547,11 @@ def main(config: Dict[str, Any]) -> None:
 
     # Load data and train
     dataset = load_data(config)
-    model_energy_force, hists, scaler = train_models(dataset, model_config, outputs, config)
+    
+    # Create models for cross-validation
+    models = [create_model(config, model_config) for _ in range(config["n_splits"])]
+    
+    model_energy_force, hists, scaler = train_models(dataset, models, model_config, outputs, config)
 
     # Get indices for evaluation
     train_indices, val_indices, test_indices = save_load_utils.load_training_indices()
