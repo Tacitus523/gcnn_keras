@@ -27,12 +27,15 @@ PROJECT_NAME = "schnet_hyp_search"
 
 MAX_DATASET_SIZE = 5000  # we will subsample the dataset to this size for speed
 
+MAX_EPOCHS = 200 # Maximum epochs for Hyperband
+
 # Set default configuration from global constants
 CONFIG_DATA.update({
     "project_name": PROJECT_NAME,
     "energy_epochs": 25,
     "n_splits": 1,
     "max_dataset_size": MAX_DATASET_SIZE,
+    "max_epochs": MAX_EPOCHS
 })
 
 def parse_args() -> Dict[str, Any]:
@@ -190,7 +193,7 @@ if __name__ == "__main__":
     # tuner = kt.Hyperband(
     #     hypermodel=hypermodel,
     #     objective=kt.Objective("val_output_2_loss", direction="min"),
-    #     max_epochs=200,
+    #     max_epochs=config["max_epochs"],
     #     factor=2,
     #     hyperband_iterations=1,
     #     overwrite=False,
@@ -207,6 +210,11 @@ if __name__ == "__main__":
         project_name=config["project_name"],
         max_consecutive_failed_trials=1
     )
+
+    if isinstance(tuner, kt.Hyperband):
+        config["energy_epochs"] = tuner.hypermodel._hyp_search_config["max_epochs"] # For proper handling of LinearLearningRateScheduler
+        config["charge_epochs"] = tuner.hypermodel._hyp_search_config["max_epochs"] # For proper handling of LinearLearningRateScheduler
+
     tuner.search_space_summary()
     tuner.search() 
     tuner.results_summary(num_trials=10)
