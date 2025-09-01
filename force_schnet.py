@@ -26,7 +26,7 @@ from kgcnn.literature.Schnet import make_model
 from kgcnn.data.transform.scaler.force import EnergyForceExtensiveLabelScaler
 from kgcnn.utils.plots import plot_predict_true, plot_train_test_loss, plot_test_set_prediction, print_error_dict
 from kgcnn.utils.devices import set_devices_gpu
-from kgcnn.utils import constants, save_load_utils, callbacks, wandb_wizard
+from kgcnn.utils import constants, save_load_utils, activations, wandb_wizard
 from kgcnn.utils.tools import get_git_commit_hash
 from kgcnn.model.force import EnergyForceModel
 
@@ -40,9 +40,9 @@ MODEL_PREFIX = "model_energy_force" # Will be used to save the models
 ENERGY_EPOCHS                = 500 # Epochs during training
 ENERGY_INITIAL_LEARNING_RATE = 1e-3 # Initial learning rate during training
 ENERGY_FINAL_LEARNING_RATE   = 1e-8 # Final learning rate during training
-ENERGY_BATCH_SIZE            = 64 # Batch size during training
-ENERGY_EARLY_STOPPING        = 0 # Patience of Early Stopping. If 0, no Early Stopping
-FORCE_LOSS_FACTOR            = 95
+ENERGY_BATCH_SIZE            = 128 # Batch size during training
+ENERGY_EARLY_STOPPING        = 0 # Patience of Early Stopping. If 0, no Early Stopping, Early Stopping breaks loss history plot
+FORCE_LOSS_FACTOR            = 200 # Weight of the force loss relative to the energy loss, gets normalized
 
 # SCHNET MODEL HYPER PARAMETERS
 INPUT_EMBEDDING_DIM          = 128 # Output dimension of node embedding
@@ -112,8 +112,6 @@ def load_data(config: Dict) -> MemoryGraphDataset:
 def create_model(train_config: Dict, model_config: Dict) -> EnergyForceModel:
     """Create and return a SchNet energy-force model."""
     force_loss_factor = train_config["force_loss_factor"]
-    energy_initial_learning_rate = train_config["energy_initial_learning_rate"]
-    energy_final_learning_rate = train_config["energy_final_learning_rate"]
     
     # Create model
     model_energy = make_model(**model_config)
@@ -130,21 +128,23 @@ def create_model(train_config: Dict, model_config: Dict) -> EnergyForceModel:
         is_physical_force=False
     )
 
-    lr_schedule = ks.optimizers.schedules.CosineDecayRestarts(
-        initial_learning_rate=energy_initial_learning_rate, 
-        first_decay_steps=1e3, 
-        t_mul=1.5, 
-        m_mul=0.7, 
-        alpha=energy_final_learning_rate/energy_initial_learning_rate
-    )
+    # energy_initial_learning_rate = train_config["energy_initial_learning_rate"]
+    # energy_final_learning_rate = train_config["energy_final_learning_rate"]
+    # lr_schedule = ks.optimizers.schedules.CosineDecayRestarts(
+    #     initial_learning_rate=energy_initial_learning_rate, 
+    #     first_decay_steps=1e3, 
+    #     t_mul=1.5, 
+    #     m_mul=0.7, 
+    #     alpha=energy_final_learning_rate/energy_initial_learning_rate
+    # )
     
     model_energy_force.compile(
         loss=["mean_squared_error", "mean_squared_error"],
-        optimizer=ks.optimizers.Adam(lr_schedule),
+        #optimizer=ks.optimizers.Adam(lr_schedule),
+        optimizer=ks.optimizers.Adam(),
         metrics=None,
         loss_weights=[1/force_loss_factor, 1-1/force_loss_factor]
     )
-    
     return model_energy_force
 
 def train_single_fold(train_val_dataset: MemoryGraphDataset,
@@ -174,15 +174,15 @@ def train_single_fold(train_val_dataset: MemoryGraphDataset,
     model_prefix = train_config["model_prefix"]
 
     # Train energy-force model
-    callbacks_list = []
+    callbacks = []
     scheduler = LinearLearningRateScheduler(
         learning_rate_start=energy_initial_learning_rate,
         learning_rate_stop=energy_final_learning_rate,
         epo_min=0,
         epo=energy_epochs)
     callbacks.append(scheduler)
-    lrlog = callbacks.LearningRateLoggingCallback()
-    callbacks_list.append(lrlog)
+    # lrlog = callbacks.LearningRateLoggingCallback()
+    # callbacks.append(lrlog)
 
     if energy_early_stopping > 0:
         earlystop = ks.callbacks.EarlyStopping(
@@ -191,20 +191,21 @@ def train_single_fold(train_val_dataset: MemoryGraphDataset,
             patience=energy_early_stopping,
             verbose=0
         )
-        callbacks_list.append(earlystop)
+        callbacks.append(earlystop)
 
     if train_config["use_wandb"]:
-        wandb_wizard.init_wandb(train_config)
-        callbacks_list.append(wandb_wizard.construct_wandb_callback(key_prefix="EnergyForce"))
+        callbacks.append(wandb_wizard.construct_wandb_callback(key_prefix="EnergyForce"))
 
     start = time.process_time()
+    kwargs["epochs"] = kwargs.get("epochs", train_config["energy_epochs"])
+    kwargs["initial_epoch"] = kwargs.get("initial_epoch", train_config.get("initial_epoch", 0))
+    kwargs["callbacks"] = kwargs.get("callbacks", []) + callbacks
     hist = model_energy_force.fit(
         x_train, energy_force_train,
-        callbacks=callbacks_list,
         validation_data=(x_val, energy_force_val),
-        epochs=energy_epochs,
         batch_size=energy_batch_size,
         verbose=2,
+        shuffle=True,
         **kwargs
     )
     stop = time.process_time()
@@ -231,11 +232,17 @@ def train_models(dataset: MemoryGraphDataset,
     n_splits = train_config["n_splits"]
     use_scaler = train_config["use_scaler"]
     scaler_path = train_config["scaler_path"]
+    standardize_scale = train_config["standardize_scale"]
 
     # Scaling energy and forces.
     if use_scaler:
-        scaler = EnergyForceExtensiveLabelScaler(standardize_scale=train_config["standardize_scale"], standardize_coordinates = False,
-            energy= "graph_labels", force = "force", atomic_number = "node_number", sample_weight = None)
+        scaler = EnergyForceExtensiveLabelScaler(
+            standardize_scale=standardize_scale,
+            standardize_coordinates = False,
+            energy= "graph_labels",
+            force = "force",
+            atomic_number = "node_number",
+            sample_weight = None)
         scaler.fit_transform_dataset(dataset)
         scaler.save(scaler_path)
     else:
@@ -279,15 +286,15 @@ def train_models(dataset: MemoryGraphDataset,
         abs_train_index = train_val_index[train_index]
         abs_val_index = train_val_index[val_index]
         
-        evaluate_model(
-            dataset=dataset,
-            model_energy_force=model_energy_force,
-            indices=(abs_train_index, abs_val_index, test_index),
-            model_config=model_config,
-            train_config=train_config,
-            scaler=scaler,
-            model_index=model_index
-        )
+        # evaluate_model(
+        #     dataset=dataset,
+        #     model_energy_force=model_energy_force,
+        #     indices=(abs_train_index, abs_val_index, test_index),
+        #     model_config=model_config,
+        #     train_config=train_config,
+        #     scaler=scaler,
+        #     model_index=model_index
+        # )
 
         # Store results (using absolute indices)
         hists.append(hist)
@@ -297,16 +304,18 @@ def train_models(dataset: MemoryGraphDataset,
         if n_splits == 1:
             break
 
-    save_load_utils.save_history(hists, filename="histories.pkl")
-    save_load_utils.save_training_indices(*indices)
+    # save_load_utils.save_history(hists, filename="histories.pkl")
+    # save_load_utils.save_training_indices(*indices)
 
-    plot_train_test_loss(hists,
-        filepath="", data_unit="eV",
-        model_name="Schnet", dataset_name=dataset.dataset_name, file_name="loss.png", show_fig=False)
+    # plot_train_test_loss(hists,
+    #     filepath="", data_unit="eV",
+    #     model_name="Schnet", dataset_name=dataset.dataset_name, file_name="loss.png", show_fig=False)
 
-    model_energy_force.summary()
-    energy_model = model_energy_force._model_energy
-    energy_model.summary()
+    # model_energy_force.summary()
+    # energy_model = model_energy_force._model_energy
+    # energy_model.summary()
+
+    return model_energy_force, indices, hists, scaler
 
 def evaluate_model(dataset: MemoryGraphDataset,
                    model_energy_force: EnergyForceModel,
@@ -341,7 +350,7 @@ def evaluate_model(dataset: MemoryGraphDataset,
 
         predicted_energy = np.array(predicted_energy).reshape(-1,1)*constants.hartree_to_eV
         predicted_force = np.array(predicted_force).reshape(-1,1)*constants.hartree_bohr_to_eV_angstrom
-
+        
         # Calculate metrics
         for label, true_value, predicted_value in zip(
             ["energy", "force"],
@@ -455,15 +464,20 @@ def main(config: Dict[str, Any]) -> None:
         ],
         #"cast_disjoint_kwargs": {"padded_disjoint": False},
         "input_embedding": {"node": {"input_dim": 95, "output_dim": config["input_embedding_dim"]}},
-        #"make_distance": True, "expand_distance": True,
+        #"make_distance": True, 
+        "expand_distance": True,
         "interaction_args": {
             "units": config["interaction_units"], "use_bias": True, "activation": "kgcnn>shifted_softplus",
             "cfconv_pool": "sum"
         },
         "node_pooling_args": {"pooling_method": "sum"},
         "depth": config["model_depth"],
-        "gauss_args": {"bins": config["gauss_bins"], "distance": config["gauss_distance"], 
-                      "offset": config["gauss_offset"], "sigma": config["gauss_sigma"]},
+        "gauss_args": {
+            "bins": config["gauss_bins"],
+            "distance": config["gauss_distance"], 
+            "offset": config["gauss_offset"],
+            "sigma": config["gauss_sigma"]
+        },
         "verbose": 10,
         "last_mlp": {"use_bias": [True, True, True], "units": config["last_mlp_units"],
             "activation": ['kgcnn>shifted_softplus', 'kgcnn>shifted_softplus', 'linear']},

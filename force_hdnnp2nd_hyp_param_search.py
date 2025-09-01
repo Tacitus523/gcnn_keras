@@ -67,7 +67,7 @@ class BaseHDNNP2ndTuner:
     """Base class for HDNNP2nd tuners with common hyperparameter building logic."""
     _outputs = [
         {"name": "graph_labels", "ragged": False},
-        {"name": "node_forces", "ragged": True}
+        {"name": "force", "shape": (None, 3), "ragged": True}
     ]
 
     def _build_raw_hyperparameters(self, hp: kt.HyperParameters) -> Dict[str, Any]:
@@ -78,11 +78,13 @@ class BaseHDNNP2ndTuner:
             "0.0 4.0 6.0 8.0",
             "0.0 3.0 5.0 7.0 9.0",
             "0.0 3.0 4.0 5.0 6.0 7.0 8.0",
+            "0.0 4.0 6.0 8.0 10.0 12.0 16.0",
         ])
         eta_array_choice = hp.Choice("eta_array", [
             "0.0 0.08 0.3",
             "0.03 0.16 0.5",
             "0.0 0.03 0.08 0.16 0.3 0.5",
+            "0.0 0.06 0.16 0.32 0.6 0.8 1.0",
         ])
         lambd_array_choice = hp.Choice("lamb_array", [
             "-1 1",
@@ -92,20 +94,21 @@ class BaseHDNNP2ndTuner:
             "2 8 16",
             "1 4 8 16",
             "1 2 4 8 16",
+            "1 2 4 8 16 32"
         ])
 
         # Energy model architecture hyperparameters
         energy_max_layers = 3
         energy_n_layers = hp.Int("energy_n_layers", 1, energy_max_layers, 1)
         energy_neurons = []
-        energy_max_neurons = 100
+        energy_max_neurons = 276
         for i in range(energy_max_layers):
-            energy_neuron = hp.Int(f"energy_neurons_{i}", 25, energy_max_neurons, 25)
+            energy_neuron = hp.Int(f"energy_neurons_{i}", 25, energy_max_neurons, 50)
             energy_neurons.append(energy_neuron)
             energy_max_neurons = energy_neuron + 1   # Ensure decreasing order
             
         energy_activation = hp.Choice("energy_activation", 
-                                    ["relu", "tanh", "elu", "swish"])
+                                    ["relu", "tanh", "elu", "swish", "leaky_relu"])
 
         raw_hp = {
             "rs_array_choice": rs_array_choice,
@@ -211,9 +214,6 @@ class MyHyperModel(kt.HyperModel, BaseHDNNP2ndTuner):
         model_config = self._model_config
         outputs = self._outputs
 
-        if not hp_config["is_valid"]:
-            return {"val_output_2_loss": 9999.0}  # Return dict for proper metric handling
-
         dataset = load_data(config)
         dataset_name = dataset.dataset_name
         np.random.seed(42)
@@ -221,7 +221,7 @@ class MyHyperModel(kt.HyperModel, BaseHDNNP2ndTuner):
         dataset = dataset[subsample_indices]
         dataset.dataset_name = dataset_name  # hack to keep the name after subsampling
         
-        model_energy_force, hists, scaler = train_models(dataset, [model], model_config, outputs, config, **kwargs)
+        model_energy_force, indices, hists, scaler = train_models(dataset, [model], model_config, outputs, config, **kwargs)
         
         return hists[0]
 
@@ -229,26 +229,26 @@ if __name__ == "__main__":
     config: Dict[str, Any] = parse_args()
     
     hypermodel = MyHyperModel(hyp_search_config=config)
-    # tuner = kt.Hyperband(
-    #     hypermodel=hypermodel,
-    #     objective=kt.Objective("val_output_2_loss", direction="min"),
-    #     max_epochs=config["max_epochs"],
-    #     factor=2,
-    #     hyperband_iterations=1,
-    #     overwrite=False,
-    #     directory=TRIAL_FOLDER_NAME,
-    #     project_name=config["project_name"],
-    #     max_consecutive_failed_trials=1
-    # )
-    tuner = kt.GridSearch(
+    tuner = kt.Hyperband(
         hypermodel=hypermodel,
         objective=kt.Objective("val_output_2_loss", direction="min"),
-        max_trials=25,
+        max_epochs=config["max_epochs"],
+        factor=2,
+        hyperband_iterations=1,
         overwrite=False,
         directory=TRIAL_FOLDER_NAME,
         project_name=config["project_name"],
         max_consecutive_failed_trials=1
     )
+    # tuner = kt.GridSearch(
+    #     hypermodel=hypermodel,
+    #     objective=kt.Objective("val_output_2_loss", direction="min"),
+    #     max_trials=25,
+    #     overwrite=False,
+    #     directory=TRIAL_FOLDER_NAME,
+    #     project_name=config["project_name"],
+    #     max_consecutive_failed_trials=1
+    # )
 
     if isinstance(tuner, kt.Hyperband):
         config["energy_epochs"] = tuner.hypermodel._hyp_search_config["max_epochs"] # For proper handling of LinearLearningRateScheduler

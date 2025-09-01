@@ -33,7 +33,7 @@ from kgcnn.metrics.loss import RaggedMeanAbsoluteError, zero_loss_function
 
 # DEFAULT VALUES
 # DATA READ AND SAVE
-DATA_DIRECTORY = "/lustre/work/ws/ws1/ka_he8978-dipeptide/training_data/B3LYP_aug-cc-pVTZ_water" # Folder containing DATASET_NAME.kgcnn.pickle
+DATA_DIRECTORY = os.getcwd() # Folder containing DATASET_NAME.kgcnn.pickle
 DATASET_NAME = "Alanindipeptide" # Used in naming plots and looking for data
 MODEL_PREFIX = "model_energy_force" # Will be used to save the models
 
@@ -68,7 +68,7 @@ N_SPLITS = 3 # Number of splits for cross-validation, used in KFold
 # SCALER PARAMETERS
 USE_SCALER = True # If True, the scaler will be used
 SCALER_PATH = "scaler.json" # None if no scaler is used
-STANDARDIZE_SCALE = True # If True, the scaler will standardize the energy and force labels
+STANDARDIZE_SCALE = True # If True, the scaler will standardize the energy labels and force labels accordingly
 
 # WANDB CONFIGURATION
 USE_WANDB = False  # Whether to use wandb logging
@@ -144,9 +144,7 @@ def create_model(train_config: Dict, model_config: Dict) -> EnergyForceModel:
     # Create energy-force model
     model_energy_force: EnergyForceModel = EnergyForceModel(
         model_energy=model_energy,
-        energy_output=1,
-        esp_input=5,
-        esp_grad_input=6,
+        energy_output=0,
         output_to_tensor=True,
         output_as_dict=False,
         output_squeeze_states=True,
@@ -154,12 +152,11 @@ def create_model(train_config: Dict, model_config: Dict) -> EnergyForceModel:
     )
 
     model_energy_force.compile(
-        loss=["mean_squared_error", "mean_squared_error", "mean_squared_error"],
+        loss=["mean_squared_error", "mean_squared_error"],
         optimizer=ks.optimizers.Adam(),
         metrics=None,
-        loss_weights=[0, 1/force_loss_factor, 1-1/force_loss_factor]
+        loss_weights=[1/force_loss_factor, 1-1/force_loss_factor]
     )
-    
     return model_energy_force
 
 def train_single_fold(train_val_dataset: MemoryGraphDataset,
@@ -207,21 +204,18 @@ def train_single_fold(train_val_dataset: MemoryGraphDataset,
         callbacks.append(earlystop)
 
     if train_config["use_wandb"]:
-        wandb_callback = wandb_wizard.WandbCallback(
-            save_model=False,
-            monitor="val_loss",
-            mode="min"
-        )
-        callbacks.append(wandb_callback)
+        callbacks.append(wandb_wizard.construct_wandb_callback(key_prefix="EnergyForce"))
 
     start = time.process_time()
+    kwargs["epochs"] = kwargs.get("epochs", train_config["energy_epochs"])
+    kwargs["initial_epoch"] = kwargs.get("initial_epoch", train_config.get("initial_epoch", 0))
+    kwargs["callbacks"] = kwargs.get("callbacks", []) + callbacks
     hist = model_energy_force.fit(
         x_train, energy_force_train,
-        callbacks=callbacks,
         validation_data=(x_val, energy_force_val),
-        epochs=energy_epochs,
         batch_size=energy_batch_size,
         verbose=2,
+        shuffle=True,
         **kwargs
     )
     stop = time.process_time()
@@ -255,10 +249,11 @@ def train_models(dataset: MemoryGraphDataset,
     if use_scaler:
         scaler = EnergyForceExtensiveLabelScaler(
             standardize_scale=standardize_scale,
-            y=["graph_labels", "node_forces"],
-            atomic_number="node_number",
-            sample_weight=None
-        )
+            standardize_coordinates = False,
+            energy= "graph_labels",
+            force = "force",
+            atomic_number = "node_number",
+            sample_weight = None)
         scaler.fit_transform_dataset(dataset)
         scaler.save(scaler_path)
     else:
@@ -279,35 +274,61 @@ def train_models(dataset: MemoryGraphDataset,
     model_index = 0
     
     for train_index, val_index in kf.split(X=np.expand_dims(train_val_index, axis=-1)):
+        train_index, val_index = val_index, train_index # Switched train and test indices to keep training data separate
         print(f"Training fold {model_index + 1}/{n_splits}")
-        
-        # Store indices for this fold
-        indices[0].append(train_val_index[train_index])
-        indices[1].append(train_val_index[val_index])
-        
+
         model_energy_force = models[model_index]
-        hist = train_single_fold(
-            train_val_dataset, train_index, val_index,
-            model_energy_force, model_config, outputs, train_config, model_index, **kwargs
-        )
         
+        # Train single fold
+        hist = train_single_fold(
+            train_val_dataset=train_val_dataset,
+            train_index=train_index,
+            val_index=val_index,
+            model_energy_force=model_energy_force,
+            model_config=model_config,
+            outputs=outputs,
+            train_config=train_config,
+            model_index=model_index,
+            **kwargs
+        )
+
+        # Evaluate the model after training
+        # Convert relative indices of train_val_dataset to absolute indices in the full dataset
+        # This is necessary because the indices from KFold are relative to the train_val_dataset
+        # and we need to evaluate on the full dataset
+        abs_train_index = train_val_index[train_index]
+        abs_val_index = train_val_index[val_index]
+        
+        # evaluate_model(
+        #     dataset=dataset,
+        #     model_energy_force=model_energy_force,
+        #     indices=(abs_train_index, abs_val_index, test_index),
+        #     model_config=model_config,
+        #     train_config=train_config,
+        #     scaler=scaler,
+        #     model_index=model_index
+        # )
+
+        # Store results (using absolute indices)
         hists.append(hist)
+        indices[0].append(abs_train_index)
+        indices[1].append(abs_val_index)
         model_index += 1
         if n_splits == 1:
             break
 
-    save_load_utils.save_history(hists, filename="histories.pkl")
-    save_load_utils.save_training_indices(*indices)
+    # save_load_utils.save_history(hists, filename="histories.pkl")
+    # save_load_utils.save_training_indices(*indices)
 
-    plot_train_test_loss(hists,
-        filepath="", data_unit="eV",
-        model_name="HDNNP", dataset_name=dataset.dataset_name, file_name="loss.png", show_fig=False)
+    # plot_train_test_loss(hists,
+    #     filepath="", data_unit="eV",
+    #     model_name="HDNNP", dataset_name=dataset.dataset_name, file_name="loss.png", show_fig=False)
 
-    model_energy_force.summary()
-    energy_model = model_energy_force._model_energy
-    energy_model.summary()
+    # model_energy_force.summary()
+    # energy_model = model_energy_force._model_energy
+    # energy_model.summary()
     
-    return model_energy_force, hists, scaler
+    return model_energy_force, indices, hists, scaler
 
 def evaluate_model(dataset: MemoryGraphDataset,
                    model_energy_force: EnergyForceModel,
@@ -325,67 +346,40 @@ def evaluate_model(dataset: MemoryGraphDataset,
     error_dict = {}
     wandb_error_dict = {}
     for stage, stage_index in zip(stages, indices):
-        print(f"\nEvaluating {stage} set...")
-        
-        # For train and val, use the last fold's indices
-        if stage in ["train", "val"]:
-            if len(stage_index) > 0:
-                stage_index = stage_index[-1]  # Use last fold
-            else:
-                continue
-        
         stage_dataset = dataset[stage_index]
+        atomic_numbers_list = stage_dataset.get("node_number")
+        true_energy = stage_dataset.get("graph_labels")
+        true_force = stage_dataset.get("force")
         x_stage = stage_dataset.tensor(model_config["inputs"])
-        
-        # Predict with the model
-        predicted_result = model_energy_force.predict(x_stage, verbose=0)
-        predicted_energy, predicted_force = predicted_result[1], predicted_result[2]
-        
-        # Get true values
-        true_energy = np.array(stage_dataset.get("graph_labels")).reshape(-1, 1)
-        true_force = np.concatenate(stage_dataset.get("node_forces"), axis=0)
-        
-        # Inverse transform if scaler was used
-        if scaler is not None:
-            predicted_energy_scaled, predicted_force_scaled = scaler.inverse_transform(
-                y=(predicted_energy.flatten(), predicted_force.flatten()),
-                X=stage_dataset.get("node_number")
-            )
-            predicted_energy = np.array(predicted_energy_scaled).reshape(-1, 1)
-            predicted_force = np.array(predicted_force_scaled).reshape(-1, 3)
-        
-        # Convert units to eV and eV/Angstrom
-        true_energy = true_energy * constants.hartree_to_ev
-        predicted_energy = predicted_energy * constants.hartree_to_ev
-        
-        true_force = true_force * constants.hartree_to_ev / constants.bohr_to_angstrom
-        predicted_force = predicted_force * constants.hartree_to_ev / constants.bohr_to_angstrom
+        predicted_energy, predicted_force = model_energy_force.predict(x_stage, batch_size=train_config["energy_batch_size"], verbose=0)
+
+        if train_config["use_scaler"]:
+            true_energy, true_force = scaler.inverse_transform(
+                y=(true_energy, true_force), X=atomic_numbers_list)
+            predicted_energy, predicted_force = scaler.inverse_transform(
+            y=(predicted_energy.flatten(), predicted_force), X=atomic_numbers_list)
+
+        true_energy = np.array(true_energy).reshape(-1,1)*constants.hartree_to_eV
+        true_force = np.array(true_force).reshape(-1,1)*constants.hartree_bohr_to_eV_angstrom
+
+        predicted_energy = np.array(predicted_energy).reshape(-1,1)*constants.hartree_to_eV
+        predicted_force = np.array(predicted_force).reshape(-1,1)*constants.hartree_bohr_to_eV_angstrom
         
         # Calculate metrics
-        rmse_energy = mean_squared_error(true_energy, predicted_energy, squared=False)
-        mae_energy = mean_absolute_error(true_energy, predicted_energy)
-        r2_energy = r2_score(true_energy, predicted_energy)
-        
-        rmse_force = mean_squared_error(true_force, predicted_force, squared=False)
-        mae_force = mean_absolute_error(true_force, predicted_force)
-        r2_force = r2_score(true_force, predicted_force)
-        
-        # Store errors
-        error_dict[f"RMSE Energy {stage}"] = f"{rmse_energy:.4f}"
-        error_dict[f"MAE Energy {stage}"] = f"{mae_energy:.4f}"
-        error_dict[f"R2 Energy {stage}"] = f"{r2_energy:.4f}"
-        error_dict[f"RMSE Force {stage}"] = f"{rmse_force:.4f}"
-        error_dict[f"MAE Force {stage}"] = f"{mae_force:.4f}"
-        error_dict[f"R2 Force {stage}"] = f"{r2_force:.4f}"
-        
-        # Store wandb errors (without stage suffix for final test metrics)
-        if stage == "test":
-            wandb_error_dict["RMSE_Energy"] = rmse_energy
-            wandb_error_dict["MAE_Energy"] = mae_energy
-            wandb_error_dict["R2_Energy"] = r2_energy
-            wandb_error_dict["RMSE_Force"] = rmse_force
-            wandb_error_dict["MAE_Force"] = mae_force
-            wandb_error_dict["R2_Force"] = r2_force
+        for label, true_value, predicted_value in zip(
+            ["energy", "force"],
+            [true_energy, true_force],
+            [predicted_energy, predicted_force]
+        ):
+            rmse = mean_squared_error(true_value, predicted_value, squared=False)
+            mae = mean_absolute_error(true_value, predicted_value)
+            r2 = r2_score(true_value, predicted_value)
+            error_dict[f"{stage.title()} RMSE {label.title()}"] = rmse
+            error_dict[f"{stage.title()} MAE {label.title()}"] = mae
+            error_dict[f"{stage.title()} R2 {label.title()}"] = r2
+            wandb_error_dict[f"{stage.title()}/{label}_rmse"] = rmse
+            wandb_error_dict[f"{stage.title()}/{label}_mae"] = mae
+            wandb_error_dict[f"{stage.title()}/{label}_r2"] = r2
 
     print_error_dict(error_dict)
 
@@ -393,45 +387,20 @@ def evaluate_model(dataset: MemoryGraphDataset,
         json.dump(error_dict, f, indent=2, sort_keys=True)
 
     if train_config["use_wandb"]:
-        wandb_wizard.wandb.log(wandb_error_dict)
+        wandb_wizard.log_wandb_metrics(metrics=wandb_error_dict)
+        wandb_wizard.finish_wandb()
 
     # Remaining evaluation only on the test set
-    stage_dataset = dataset[indices[2]]  # test set
-    x_test = stage_dataset.tensor(model_config["inputs"])
-    predicted_result = model_energy_force.predict(x_test, verbose=0)
-    predicted_energy, predicted_force = predicted_result[1], predicted_result[2]
-    
-    true_energy = np.array(stage_dataset.get("graph_labels")).reshape(-1, 1)
-    true_force = np.concatenate(stage_dataset.get("node_forces"), axis=0)
-    
-    if scaler is not None:
-        predicted_energy_scaled, predicted_force_scaled = scaler.inverse_transform(
-            y=(predicted_energy.flatten(), predicted_force.flatten()),
-            X=stage_dataset.get("node_number")
-        )
-        predicted_energy = np.array(predicted_energy_scaled).reshape(-1, 1)
-        predicted_force = np.array(predicted_force_scaled).reshape(-1, 3)
-    
-    # Convert units
-    true_energy = true_energy * constants.hartree_to_ev
-    predicted_energy = predicted_energy * constants.hartree_to_ev
-    true_force = true_force * constants.hartree_to_ev / constants.bohr_to_angstrom
-    predicted_force = predicted_force * constants.hartree_to_ev / constants.bohr_to_angstrom
-    
-    # Get atomic numbers for saving
-    atomic_numbers_list: List[np.ndarray] = stage_dataset.get("node_number")
     positions_list: List[np.ndarray] = stage_dataset.get("node_coordinates")
-    
-    # Save extended XYZ file
     ref_infos: Dict[str, np.ndarray] = {}
     ref_arrays: Dict[str, List[np.ndarray]] = {}
     pred_infos: Dict[str, np.ndarray] = {}
     pred_arrays: Dict[str, List[np.ndarray]] = {}
 
     ref_infos["energy"] = true_energy
-    ref_arrays["forces"] = [force for force in np.split(true_force, len(atomic_numbers_list))]
+    ref_arrays["forces"] = true_force
     pred_infos["energy"] = predicted_energy
-    pred_arrays["forces"] = [force for force in np.split(predicted_force, len(atomic_numbers_list))]
+    pred_arrays["forces"] = predicted_force
 
     save_load_utils.save_extxyz(
         atomic_numbers_list=atomic_numbers_list,
@@ -443,7 +412,6 @@ def evaluate_model(dataset: MemoryGraphDataset,
         filename=f"HDNNP_geoms{model_suffix}.extxyz"
     )
 
-    # Plot results
     plot_predict_true(predicted_energy, true_energy,
         filepath="", data_unit="eV",
         model_name="HDNNP", dataset_name=dataset_name, target_names="Energy",
@@ -454,20 +422,18 @@ def evaluate_model(dataset: MemoryGraphDataset,
         model_name="HDNNP", dataset_name=dataset_name, target_names="Force",
         error="RMSE", file_name=f"predict_force{model_suffix}.png", show_fig=False)
 
-    # Create DataFrames and additional plots
     energy_df = pd.DataFrame({"energy_reference": true_energy.flatten(), "energy_prediction": predicted_energy.flatten()})
     force_df = pd.DataFrame({"force_reference": true_force.flatten(), "force_prediction": predicted_force.flatten()})
 
     at_types_column = pd.Series(np.array(atomic_numbers_list).flatten(), name="at_types").replace(constants.atomic_number_to_element)
     force_df["at_types"] = at_types_column.repeat(3).reset_index(drop=True)
 
-    rmse_energy, r2_energy = error_dict["RMSE Energy test"], error_dict["R2 Energy test"]
-    rmse_force, r2_force = error_dict["RMSE Force test"], error_dict["R2 Force test"]
-    
+    rmse_energy, r2_energy = error_dict["Test RMSE Energy"], error_dict["Test R2 Energy"]
+    rmse_force, r2_force = error_dict["Test RMSE Force"], error_dict["Test R2 Force"]
     plot_test_set_prediction(energy_df, "energy_reference", "energy_prediction",
-        "Energy", "eV", float(rmse_energy), float(r2_energy), f"energy_lmplot{model_suffix}.png")
+        "Energy", "eV", rmse_energy, r2_energy, f"energy_lmplot{model_suffix}.png")
     plot_test_set_prediction(force_df, "force_reference", "force_prediction",
-        "Force", r"$\frac{eV}{\AA}$", float(rmse_force), float(r2_force), f"force_lmplot{model_suffix}.png")
+        "Force", r"$\frac{eV}{\AA}$", rmse_force, r2_force, f"force_lmplot{model_suffix}.png")
 
 def parse_arguments() -> Dict[str, Any]:
     """Parse command line arguments and return configuration data."""
@@ -485,54 +451,51 @@ def parse_arguments() -> Dict[str, Any]:
     if args.config_path is not None:
         try:
             with open(args.config_path, 'r') as config_file:
-                loaded_config = json.load(config_file)
-                
-            # Update config with loaded values, converting keys to lowercase
-            for key, value in loaded_config.items():
-                config_data[key.lower()] = value
-                
+                file_config_data = json.load(config_file)
+            file_config_data = {key.lower(): value for key, value in file_config_data.items()}
         except FileNotFoundError:
             print(f"Config file {args.config_path} not found.")
             exit(1)
+
+        # Update config_data with values from config file
+        config_data.update(file_config_data)
     
     config_data["git_commit_hash"] = get_git_commit_hash()
 
     for key, value in config_data.items():
         print(f"{key}: {value}")
-        
     return config_data
 
 def main(config: Dict[str, Any]) -> None:
-    """Main training and evaluation function."""
-    
-    # Initialize wandb if enabled
-    if config["use_wandb"]:
-        wandb_wizard.init_wandb(
-            project=config["wandb_project"],
-            entity=config["wandb_entity"],
-            name=config["wandb_name"],
-            config=config
-        )
-
-    # Build model configuration
     model_config = {
         "name": "HDNNP2nd",
         "inputs": [
-                {"shape": (None,), "name": "node_number", "dtype": "int64", "ragged": True},
-                {"shape": (None, 3), "name": "node_coordinates", "dtype": "float32", "ragged": True},
-                {"shape": (None, 2), "name": "range_indices", "dtype": "int64", "ragged": True},
-                {"shape": (None, 3), "name": "angle_indices_nodes", "dtype": "int64", "ragged": True}
-                ],
-        "g2_kwargs": {"eta": config["eta_array"], "rs": config["rs_array"], 
-                     "rc": config["cutoff_rad"], "elements": config["elemental_mapping"]},
-        "g4_kwargs": {"eta": config["eta_ang_array"], "zeta": config["zeta_array"], 
-                     "lamda": config["lambd_array"], "rc": config["cutoff_ang"],
-                     "elements": config["elemental_mapping"], "multiplicity": 2.0},
+            {"shape": (None,), "name": "node_number", "dtype": "int64", "ragged": True},
+            {"shape": (None, 3), "name": "node_coordinates", "dtype": "float32", "ragged": True},
+            {"shape": (None, 2), "name": "range_indices", "dtype": "int64", "ragged": True},
+            {"shape": (None, 3), "name": "angle_indices_nodes", "dtype": "int64", "ragged": True},
+        ],
+        "g2_kwargs": {
+            "eta": config["eta_array"], 
+            "rs": config["rs_array"], 
+            "rc": config["cutoff_rad"], 
+            "elements": config["elemental_mapping"]
+        },
+        "g4_kwargs": {
+            "eta": config["eta_ang_array"], 
+            "zeta": config["zeta_array"], 
+            "lamda": config["lambd_array"], 
+            "rc": config["cutoff_ang"], 
+            "elements": config["elemental_mapping"],
+            "multiplicity": 2.0
+        },
         "normalize_kwargs": {},
-        "mlp_kwargs": {"units": config["energy_hidden_layers"] + [1],
-                       "num_relations": config["max_elements"],
-                       "activation": [lambda x: activations.custom_activation(x, energy_activation) 
-                                    for energy_activation in config["energy_hidden_activation"]] + ["linear"]},
+        "mlp_kwargs": {
+            "units": config["energy_hidden_layers"] + [1],
+            "num_relations": config["max_elements"],
+            "activation": [lambda x: activations.custom_activation(x, energy_activation) 
+                            for energy_activation in config["energy_hidden_activation"]] + ["linear"]
+        },
         "node_pooling_args": {"pooling_method": "sum"},
         "verbose": 10,
         "output_embedding": "graph", "output_to_tensor": True,
@@ -542,26 +505,13 @@ def main(config: Dict[str, Any]) -> None:
 
     outputs = [
         {"name": "graph_labels", "ragged": False},
-        {"name": "node_forces", "ragged": True}
+        {"name": "force", "shape": (None, 3), "ragged": True}
     ]
 
-    # Load data and train
     dataset = load_data(config)
-    
-    # Create models for cross-validation
     models = [create_model(config, model_config) for _ in range(config["n_splits"])]
-    
-    model_energy_force, hists, scaler = train_models(dataset, models, model_config, outputs, config)
-
-    # Get indices for evaluation
-    train_indices, val_indices, test_indices = save_load_utils.load_training_indices()
-    indices = (train_indices, val_indices, test_indices)
-    
-    # Evaluate model
-    evaluate_model(dataset, model_energy_force, indices, model_config, config, scaler)
-
-    if config["use_wandb"]:
-        wandb_wizard.wandb.finish()
+    model_energy_force, indices, hists, scaler = train_models(dataset, models, model_config, outputs, config)
+    print("Training and evaluation completed successfully.")
 
 if __name__ == "__main__":
     config = parse_arguments()

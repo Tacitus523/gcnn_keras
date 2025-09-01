@@ -152,13 +152,13 @@ def create_model(train_config: Dict, model_config: Dict) -> EnergyForceModel:
         model_config: Configuration dictionary for model creation
         
     Returns:
-        Tuple of (charge_model, energy_model, energy_force_model)
+        model_energy_force: Compiled energy-force model
     """
     # Create the base models
     model_energy = make_model(**model_config)
     
     # Create energy-force model
-    model_energy_force = EnergyForceModel(
+    model_energy_force: EnergyForceModel = EnergyForceModel(
         model_energy=model_energy,
         energy_output=1,
         esp_input=5,
@@ -272,8 +272,13 @@ def train_models(dataset: MemoryGraphDataset,
 
     # Scaling energy and forces.
     if use_scaler:
-        scaler = EnergyForceExtensiveLabelScaler(standardize_scale=train_config["standardize_scale"], standardize_coordinates = False,
-            energy= "graph_labels", force = "force", atomic_number = "node_number", sample_weight = None)
+        scaler = EnergyForceExtensiveLabelScaler(
+            standardize_scale=train_config["standardize_scale"],
+            standardize_coordinates = False,
+            energy= "graph_labels",
+            force = "force",
+            atomic_number = "node_number",
+            sample_weight = None)
         scaler.fit_transform_dataset(dataset)
         scaler.save(scaler_path)
     else:
@@ -295,7 +300,8 @@ def train_models(dataset: MemoryGraphDataset,
     
     for train_index, val_index in kf.split(X=np.expand_dims(train_val_index, axis=-1)):
         train_index, val_index = val_index, train_index # Switched train and test indices to keep training data separate
-        
+        print(f"Training fold {model_index + 1}/{n_splits}")
+
         model_energy_force = models[model_index]
         
         # Train single fold
@@ -532,9 +538,10 @@ def main(config: Dict[str, Any]) -> None:
             "activation": [lambda x: activations.custom_activation(x, charge_activation) for charge_activation in config["charge_hidden_activation"]]+["linear"]
         },
         "mlp_local_kwargs": {
-            "units": config["energy_hidden_layers"]+[1],
+            "units": config["energy_hidden_layers"] + [1],
             "num_relations": config["max_elements"],
-            "activation":  [lambda x: activations.custom_activation(x, energy_activation) for energy_activation in config["energy_hidden_activation"]]+["linear"]
+            "activation": [lambda x: activations.custom_activation(x, energy_activation) 
+                            for energy_activation in config["energy_hidden_activation"]] + ["linear"]
         },
         "cent_kwargs": {},
         "electrostatic_kwargs": {

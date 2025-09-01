@@ -74,14 +74,14 @@ class BaseSchnetTuner:
         """Build raw hyperparameters from the tuner."""
 
         # Model architecture hyperparameters
-        input_embedding_dim = hp.Choice("input_embedding_dim", [64, 128, 256])
-        interaction_units = hp.Choice("interaction_units", [64, 128, 256])
+        input_embedding_dim = hp.Choice("input_embedding_dim", [32, 64, 128, 256])
+        interaction_units = hp.Choice("interaction_units", [32, 64, 128, 256])
         model_depth = hp.Int("model_depth", 3, 8, 1)
         
         # Gaussian basis hyperparameters
-        gauss_bins = hp.Int("gauss_bins", 20, 50, 5)
+        gauss_bins = hp.Int("gauss_bins", 20, 101, 10)
         gauss_distance = hp.Choice("gauss_distance", [4.0, 5.0, 6.0])
-        gauss_offset = hp.Choice("gauss_offset", [0.0, 0.5])
+        gauss_offset = hp.Choice("gauss_offset", [0.0, 0.5, 1.0])
         gauss_sigma = hp.Choice("gauss_sigma", [0.2, 0.4, 0.6])
         
         # Output MLP hyperparameters
@@ -92,6 +92,9 @@ class BaseSchnetTuner:
             "256 128 64 1"
         ])
 
+        activation = hp.Choice("energy_activation", 
+            ["relu", "tanh", "elu", "swish", "leaky_relu", "shifted_softplus"])
+
         raw_hp = {
             "input_embedding_dim": input_embedding_dim,
             "interaction_units": interaction_units,
@@ -100,7 +103,8 @@ class BaseSchnetTuner:
             "gauss_distance": gauss_distance,
             "gauss_offset": gauss_offset,
             "gauss_sigma": gauss_sigma,
-            "output_mlp_choice": output_mlp_choice
+            "output_mlp_choice": output_mlp_choice,
+            "activation": activation
         }
         return raw_hp
 
@@ -112,6 +116,9 @@ class BaseSchnetTuner:
         # Output MLP units
         output_mlp_units = [int(x) for x in raw_hp["output_mlp_choice"].split()]
 
+        # Activation function
+        activation = lambda x: activations.custom_activation(x, raw_hp["activation"])
+
         return {
             "input_embedding_dim": raw_hp["input_embedding_dim"],
             "interaction_units": raw_hp["interaction_units"],
@@ -121,7 +128,7 @@ class BaseSchnetTuner:
             "gauss_offset": raw_hp["gauss_offset"],
             "gauss_sigma": raw_hp["gauss_sigma"],
             "output_mlp_units": output_mlp_units,
-            "is_valid": True  # All SchNet configurations are valid
+            "activation": activation,
         }
     
     def _build_model_config(self, hp_config: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
@@ -135,17 +142,21 @@ class BaseSchnetTuner:
             ],
             "input_embedding": {"node": {"input_dim": 95, "output_dim": hp_config["input_embedding_dim"]}},
             "interaction_args": {
-                "units": hp_config["interaction_units"], "use_bias": True, "activation": "kgcnn>shifted_softplus",
+                "units": hp_config["interaction_units"], "use_bias": True, "activation": hp_config["activation"],
                 "cfconv_pool": "sum"
             },
             "node_pooling_args": {"pooling_method": "sum"},
             "depth": hp_config["model_depth"],
-            "gauss_args": {"bins": hp_config["gauss_bins"], "distance": hp_config["gauss_distance"], 
-                          "offset": hp_config["gauss_offset"], "sigma": hp_config["gauss_sigma"]},
+            "gauss_args": {
+                "bins": hp_config["gauss_bins"],
+                "distance": hp_config["gauss_distance"], 
+                "offset": hp_config["gauss_offset"],
+                "sigma": hp_config["gauss_sigma"]
+            },
             "verbose": 10,
             "last_mlp": {"use_bias": [True] * len(hp_config["output_mlp_units"]), 
                         "units": hp_config["output_mlp_units"],
-                        "activation": ['kgcnn>shifted_softplus'] * (len(hp_config["output_mlp_units"]) - 1) + ['linear']},
+                        "activation": [hp_config["activation"]] * (len(hp_config["output_mlp_units"]) - 1) + ['linear']},
             "output_embedding": "graph", "output_to_tensor": True,
             "use_output_mlp": False,
             "output_mlp": None
@@ -172,9 +183,6 @@ class MyHyperModel(kt.HyperModel, BaseSchnetTuner):
         model_config = self._model_config
         outputs = self._outputs
 
-        if not hp_config["is_valid"]:
-            return {"val_output_2_loss": 9999.0}  # Return dict for proper metric handling
-
         dataset = load_data(config)
         dataset_name = dataset.dataset_name
         np.random.seed(42)
@@ -182,7 +190,7 @@ class MyHyperModel(kt.HyperModel, BaseSchnetTuner):
         dataset = dataset[subsample_indices]
         dataset.dataset_name = dataset_name  # hack to keep the name after subsampling
         
-        model_energy_force, test_index, hists, scaler = train_models(dataset, [model], model_config, outputs, config, **kwargs)
+        model_energy_force, indices, hists, scaler = train_models(dataset, [model], model_config, outputs, config, **kwargs)
         
         return hists[0]
 
@@ -190,26 +198,26 @@ if __name__ == "__main__":
     config: Dict[str, Any] = parse_args()
     
     hypermodel = MyHyperModel(hyp_search_config=config)
-    # tuner = kt.Hyperband(
-    #     hypermodel=hypermodel,
-    #     objective=kt.Objective("val_output_2_loss", direction="min"),
-    #     max_epochs=config["max_epochs"],
-    #     factor=2,
-    #     hyperband_iterations=1,
-    #     overwrite=False,
-    #     directory=TRIAL_FOLDER_NAME,
-    #     project_name=config["project_name"],
-    #     max_consecutive_failed_trials=1
-    # )
-    tuner = kt.GridSearch(
+    tuner = kt.Hyperband(
         hypermodel=hypermodel,
         objective=kt.Objective("val_output_2_loss", direction="min"),
-        max_trials=25,
+        max_epochs=config["max_epochs"],
+        factor=2,
+        hyperband_iterations=1,
         overwrite=False,
         directory=TRIAL_FOLDER_NAME,
         project_name=config["project_name"],
         max_consecutive_failed_trials=1
     )
+    # tuner = kt.GridSearch(
+    #     hypermodel=hypermodel,
+    #     objective=kt.Objective("val_output_2_loss", direction="min"),
+    #     max_trials=25,
+    #     overwrite=False,
+    #     directory=TRIAL_FOLDER_NAME,
+    #     project_name=config["project_name"],
+    #     max_consecutive_failed_trials=1
+    # )
 
     if isinstance(tuner, kt.Hyperband):
         config["energy_epochs"] = tuner.hypermodel._hyp_search_config["max_epochs"] # For proper handling of LinearLearningRateScheduler

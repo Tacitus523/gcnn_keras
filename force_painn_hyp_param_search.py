@@ -75,8 +75,8 @@ class BasePaiNNTuner:
 
         # Model architecture hyperparameters
         input_embedding_dim = hp.Choice("input_embedding_dim", [64, 128, 256])
-        conv_units = hp.Choice("conv_units", [64, 128, 256])
-        update_units = hp.Choice("update_units", [64, 128, 256])
+        conv_units = input_embedding_dim#hp.Choice("conv_units", [64, 128, 256])
+        update_units = input_embedding_dim#hp.Choice("update_units", [64, 128, 256])
         model_depth = hp.Int("model_depth", 3, 8, 1)
         
         # Bessel basis hyperparameters
@@ -92,6 +92,9 @@ class BasePaiNNTuner:
             "256 128 1"
         ])
 
+        activation = hp.Choice("energy_activation", 
+            ["relu", "tanh", "elu", "swish", "leaky_relu", "shifted_softplus"])
+
         raw_hp = {
             "input_embedding_dim": input_embedding_dim,
             "conv_units": conv_units,
@@ -100,7 +103,8 @@ class BasePaiNNTuner:
             "bessel_num_radial": bessel_num_radial,
             "bessel_cutoff": bessel_cutoff,
             "bessel_envelope_exponent": bessel_envelope_exponent,
-            "output_mlp_choice": output_mlp_choice
+            "output_mlp_choice": output_mlp_choice,
+            "activation": activation
         }
         return raw_hp
 
@@ -112,6 +116,9 @@ class BasePaiNNTuner:
         # Output MLP units
         output_mlp_units = [int(x) for x in raw_hp["output_mlp_choice"].split()]
 
+        # Activation function
+        activation = lambda x: activations.custom_activation(x, raw_hp["activation"])
+
         return {
             "input_embedding_dim": raw_hp["input_embedding_dim"],
             "conv_units": raw_hp["conv_units"],
@@ -121,7 +128,7 @@ class BasePaiNNTuner:
             "bessel_cutoff": raw_hp["bessel_cutoff"],
             "bessel_envelope_exponent": raw_hp["bessel_envelope_exponent"],
             "output_mlp_units": output_mlp_units,
-            "is_valid": True  # All PAiNN configurations are valid
+            "activation": activation,
         }
     
     def _build_model_config(self, hp_config: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
@@ -135,8 +142,11 @@ class BasePaiNNTuner:
             ],
             "input_embedding": {"node": {"input_dim": 95, "output_dim": hp_config["input_embedding_dim"]}},
             "equiv_initialize_kwargs": {"dim": 3, "method": "eps"},
-            "bessel_basis": {"num_radial": hp_config["bessel_num_radial"], "cutoff": hp_config["bessel_cutoff"], 
-                            "envelope_exponent": hp_config["bessel_envelope_exponent"]},
+            "bessel_basis": {
+                "num_radial": hp_config["bessel_num_radial"], 
+                "cutoff": hp_config["bessel_cutoff"], 
+                "envelope_exponent": hp_config["bessel_envelope_exponent"]
+            },
             "pooling_args": {"pooling_method": "sum"},
             "conv_args": {"units": hp_config["conv_units"], "cutoff": None},
             "update_args": {"units": hp_config["update_units"]},
@@ -144,7 +154,7 @@ class BasePaiNNTuner:
             "output_embedding": "graph",
             "output_mlp": {"use_bias": [True] * len(hp_config["output_mlp_units"]), 
                           "units": hp_config["output_mlp_units"], 
-                          "activation": ["swish"] * (len(hp_config["output_mlp_units"]) - 1) + ["linear"]},
+                          "activation": [hp_config["activation"]] * (len(hp_config["output_mlp_units"]) - 1) + ["linear"]},
         }
 
 class MyHyperModel(kt.HyperModel, BasePaiNNTuner):
@@ -168,9 +178,6 @@ class MyHyperModel(kt.HyperModel, BasePaiNNTuner):
         model_config = self._model_config
         outputs = self._outputs
 
-        if not hp_config["is_valid"]:
-            return {"val_output_2_loss": 9999.0}  # Return dict for proper metric handling
-
         dataset = load_data(config)
         dataset_name = dataset.dataset_name
         np.random.seed(42)
@@ -178,7 +185,7 @@ class MyHyperModel(kt.HyperModel, BasePaiNNTuner):
         dataset = dataset[subsample_indices]
         dataset.dataset_name = dataset_name  # hack to keep the name after subsampling
         
-        model_energy_force, test_index, hists, scaler = train_models(dataset, [model], model_config, outputs, config, **kwargs)
+        model_energy_force, indices, hists, scaler = train_models(dataset, [model], model_config, outputs, config, **kwargs)
         
         return hists[0]
 
@@ -186,26 +193,26 @@ if __name__ == "__main__":
     config: Dict[str, Any] = parse_args()
     
     hypermodel = MyHyperModel(hyp_search_config=config)
-    # tuner = kt.Hyperband(
-    #     hypermodel=hypermodel,
-    #     objective=kt.Objective("val_output_2_loss", direction="min"),
-    #     max_epochs=config["max_epochs"],
-    #     factor=2,
-    #     hyperband_iterations=1,
-    #     overwrite=False,
-    #     directory=TRIAL_FOLDER_NAME,
-    #     project_name=config["project_name"],
-    #     max_consecutive_failed_trials=1
-    # )
-    tuner = kt.GridSearch(
+    tuner = kt.Hyperband(
         hypermodel=hypermodel,
         objective=kt.Objective("val_output_2_loss", direction="min"),
-        max_trials=25,
+        max_epochs=config["max_epochs"],
+        factor=2,
+        hyperband_iterations=1,
         overwrite=False,
         directory=TRIAL_FOLDER_NAME,
         project_name=config["project_name"],
         max_consecutive_failed_trials=1
     )
+    # tuner = kt.GridSearch(
+    #     hypermodel=hypermodel,
+    #     objective=kt.Objective("val_output_2_loss", direction="min"),
+    #     max_trials=25,
+    #     overwrite=False,
+    #     directory=TRIAL_FOLDER_NAME,
+    #     project_name=config["project_name"],
+    #     max_consecutive_failed_trials=1
+    # )
 
     if isinstance(tuner, kt.Hyperband):
         config["energy_epochs"] = tuner.hypermodel._hyp_search_config["max_epochs"] # For proper handling of LinearLearningRateScheduler
