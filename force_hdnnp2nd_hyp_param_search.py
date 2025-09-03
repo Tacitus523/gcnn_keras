@@ -44,6 +44,7 @@ HYP_PARAM_SEARCH_TEMP_CONFIGS = {
     "do_search": True,
     "n_splits": 1,
     "max_dataset_size": MAX_DATASET_SIZE,
+    "use_wandb": False
 }
 
 def parse_args() -> Dict[str, Any]:
@@ -211,12 +212,14 @@ class MyHyperModel(kt.HyperModel, BaseHDNNP2ndTuner):
         self._model_config = model_config
         return create_model(self._hyp_search_config, model_config)
     
-    def fit(self, hp, model, *args, **kwargs):
+    def fit(self, hp, models, *args, **kwargs):
         ks.backend.clear_session() # RAM is apparently not released between trials. This should clear some of it, but probably not all. https://github.com/keras-team/keras-tuner/issues/395
         config = self._hyp_search_config.copy()
         hp_config = self._hp_config
         model_config = self._model_config
         outputs = self._outputs
+        if not isinstance(models, List):
+            models = [models]
 
         dataset = load_data(config)
         dataset_name = dataset.dataset_name
@@ -224,9 +227,9 @@ class MyHyperModel(kt.HyperModel, BaseHDNNP2ndTuner):
         subsample_indices = np.random.choice(len(dataset), size=min(config["max_dataset_size"], len(dataset)), replace=False)
         dataset = dataset[subsample_indices]
         dataset.dataset_name = dataset_name  # hack to keep the name after subsampling
-        
-        model_energy_force, indices, hists, scaler = train_models(dataset, [model], model_config, outputs, config, **kwargs)
-        
+
+        model_energy_force, indices, hists, scaler = train_models(dataset, models, model_config, outputs, config, **kwargs)
+
         return hists[0]
     
     def deactivate_search(self, train_config):
@@ -271,4 +274,6 @@ if __name__ == "__main__":
 
     hypermodel.deactivate_search(config)
     best_model = hypermodel.build(n_best_hps[0])
-    hypermodel.fit(n_best_hps[0], best_model)
+    n_best_hps = tuner.get_best_hyperparameters(num_trials=config["n_splits"])
+    best_models = [hypermodel.build(n_best_hps[i]) for i in range(len(n_best_hps))]
+    hypermodel.fit(n_best_hps[0], best_models)
