@@ -269,11 +269,13 @@ def train_models(dataset: MemoryGraphDataset,
     n_splits = train_config["n_splits"]
     use_scaler = train_config["use_scaler"]
     scaler_path = train_config["scaler_path"]
+    standardize_scale = train_config["standardize_scale"]
+    do_search = train_config.get("do_search", False)
 
     # Scaling energy and forces.
     if use_scaler:
         scaler = EnergyForceExtensiveLabelScaler(
-            standardize_scale=train_config["standardize_scale"],
+            standardize_scale=standardize_scale,
             standardize_coordinates = False,
             energy= "graph_labels",
             force = "force",
@@ -324,15 +326,16 @@ def train_models(dataset: MemoryGraphDataset,
         abs_train_index = train_val_index[train_index]
         abs_val_index = train_val_index[val_index]
         
-        # evaluate_model(
-        #     dataset=dataset,
-        #     model_energy_force=model_energy_force,
-        #     indices=(abs_train_index, abs_val_index, test_index),
-        #     model_config=model_config,
-        #     train_config=train_config,
-        #     scaler=scaler,
-        #     model_index=model_index
-        # )
+        if not do_search:
+            evaluate_model(
+                dataset=dataset,
+                model_energy_force=model_energy_force,
+                indices=(abs_train_index, abs_val_index, test_index),
+                model_config=model_config,
+                train_config=train_config,
+                scaler=scaler,
+                model_index=model_index
+            )
 
         # Store results (using absolute indices)
         hists.append(hist)
@@ -342,16 +345,17 @@ def train_models(dataset: MemoryGraphDataset,
         if n_splits == 1:
             break
 
-    # save_load_utils.save_history(hists, filename="histories.pkl")
-    # save_load_utils.save_training_indices(*indices)
+    if not do_search:
+        save_load_utils.save_history(hists, filename="histories.pkl")
+        save_load_utils.save_training_indices(*indices)
 
-    # plot_train_test_loss(hists,
-    #     filepath="", data_unit="eV",
-    #     model_name="HDNNP", dataset_name=dataset.dataset_name, file_name="loss.png", show_fig=False)
+        plot_train_test_loss(hists,
+            filepath="", data_unit="eV",
+            model_name="HDNNP", dataset_name=dataset.dataset_name, file_name="loss.png", show_fig=False)
 
-    # model_energy_force.summary()
-    # energy_model = model_energy_force._model_energy
-    # energy_model.summary()
+        model_energy_force.summary()
+        energy_model = model_energy_force._model_energy
+        energy_model.summary()
     
     return model_energy_force, indices, hists, scaler
 

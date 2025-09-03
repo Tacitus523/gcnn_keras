@@ -27,16 +27,24 @@ PROJECT_NAME = "hdnnp2nd_hyp_search"
 
 MAX_DATASET_SIZE = 5000  # we will subsample the dataset to this size for speed
 
-MAX_EPOCHS = 200 # Maximum epochs for Hyperband
+# MAX_EPOCHS = 25 # Less epochs for grid search
+MAX_EPOCHS = 200 # Maximum epochs during search
+HYPERBAND_FACTOR = 2 # Factor by which to increase hyperband epochs until MAX_EPOCHS is reached
 
 # Set default configuration from global constants
-CONFIG_DATA.update({
+HYP_PARAM_SEARCH_CONFIGS = {
     "project_name": PROJECT_NAME,
-    "energy_epochs": 25,
+    "max_epochs": MAX_EPOCHS,
+    "hyperband_factor": HYPERBAND_FACTOR
+}
+CONFIG_DATA.update(HYP_PARAM_SEARCH_CONFIGS)
+
+# Temporary configuration for hyperparameter search, overwrites configs temporarily, original configs used for training of best model
+HYP_PARAM_SEARCH_TEMP_CONFIGS = {
+    "do_search": True,
     "n_splits": 1,
     "max_dataset_size": MAX_DATASET_SIZE,
-    "max_epochs": MAX_EPOCHS
-})
+}
 
 def parse_args() -> Dict[str, Any]:
     # Ability to restrict the model to only use a certain GPU, which is passed with python -g gpu_id, or to use a config file
@@ -127,9 +135,11 @@ class BaseHDNNP2ndTuner:
 
         raw_hp = self._build_raw_hyperparameters(hp)
 
-        # Symmetry function parameters
+        # Radial parameters
         rs_array = [float(x) for x in raw_hp["rs_array_choice"].split()]
         eta_array = [float(x) for x in raw_hp["eta_array_choice"].split()]
+
+        # Angular parameters
         lambd_array = [float(x) for x in raw_hp["lambd_array_choice"].split()]
         zeta_array = [float(x) for x in raw_hp["zeta_array_choice"].split()]
 
@@ -139,20 +149,13 @@ class BaseHDNNP2ndTuner:
         energy_activations = ([lambda x: activations.custom_activation(x, raw_hp["energy_activation"])] *
             raw_hp["energy_n_layers"] + ["linear"])
 
-        # Ensure that the layers are in decreasing order
-        is_valid = True
-        is_energy_layers_sorted = all(x >= y for x, y in zip(energy_layers, energy_layers[1:]))
-        if not is_energy_layers_sorted:
-            is_valid = False
-
         return {
             "rs_array": rs_array,
             "eta_array": eta_array,
             "lambd_array": lambd_array,
             "zeta_array": zeta_array,
             "energy_layers": energy_layers,
-            "energy_activations": energy_activations,
-            "is_valid": is_valid
+            "energy_activations": energy_activations
         }
     
     def _build_model_config(self, hp_config: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
@@ -196,7 +199,8 @@ class BaseHDNNP2ndTuner:
 class MyHyperModel(kt.HyperModel, BaseHDNNP2ndTuner):
     def __init__(self, hyp_search_config: Optional[Dict[str, Any]] = None):
         super().__init__()
-        self._hyp_search_config: Optional[Dict[str, Any]] = hyp_search_config
+        self._hyp_search_config: Optional[Dict[str, Any]] = hyp_search_config.copy()
+        self._hyp_search_config["energy_epochs"] = self._hyp_search_config["max_epochs"] 
         self._hp_config: Optional[Dict[str, Any]] = None
         self._model_config: Optional[Dict[str, Any]] = None
 
@@ -224,16 +228,24 @@ class MyHyperModel(kt.HyperModel, BaseHDNNP2ndTuner):
         model_energy_force, indices, hists, scaler = train_models(dataset, [model], model_config, outputs, config, **kwargs)
         
         return hists[0]
+    
+    def deactivate_search(self, train_config):
+        self._hyp_search_config = train_config.copy()
+        self._hyp_search_config["do_search"] = False
+        self._hyp_search_config["max_dataset_size"] = np.inf
+        self._hyp_search_config["energy_early_stopping"] = 0
 
 if __name__ == "__main__":
     config: Dict[str, Any] = parse_args()
-    
-    hypermodel = MyHyperModel(hyp_search_config=config)
+    hyp_param_search_params = config.copy()
+    hyp_param_search_params.update(HYP_PARAM_SEARCH_TEMP_CONFIGS)
+
+    hypermodel = MyHyperModel(hyp_search_config=hyp_param_search_params)
     tuner = kt.Hyperband(
         hypermodel=hypermodel,
         objective=kt.Objective("val_output_2_loss", direction="min"),
-        max_epochs=config["max_epochs"],
-        factor=2,
+        max_epochs=hyp_param_search_params["max_epochs"],
+        factor=hyp_param_search_params["hyperband_factor"],
         hyperband_iterations=1,
         overwrite=False,
         directory=TRIAL_FOLDER_NAME,
@@ -249,14 +261,14 @@ if __name__ == "__main__":
     #     project_name=config["project_name"],
     #     max_consecutive_failed_trials=1
     # )
-
-    if isinstance(tuner, kt.Hyperband):
-        config["energy_epochs"] = tuner.hypermodel._hyp_search_config["max_epochs"] # For proper handling of LinearLearningRateScheduler
-        config["charge_epochs"] = tuner.hypermodel._hyp_search_config["max_epochs"] # For proper handling of LinearLearningRateScheduler
-
+    
     tuner.search_space_summary()
     tuner.search() 
     tuner.results_summary(num_trials=10)
     n_best_hps = tuner.get_best_hyperparameters(num_trials=10)
     with open(os.path.join("best_hp_hdnnp2nd.json"), "w") as f:
         json.dump(n_best_hps[0].values, f, indent=2)
+
+    hypermodel.deactivate_search(config)
+    best_model = hypermodel.build(n_best_hps[0])
+    hypermodel.fit(n_best_hps[0], best_model)
