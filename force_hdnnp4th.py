@@ -231,6 +231,7 @@ def train_single_fold(train_val_dataset: MemoryGraphDataset,
         callbacks.append(earlystop)
 
     if train_config["use_wandb"]:
+        wandb_wizard.init_wandb(train_config)
         callbacks.append(wandb_wizard.construct_wandb_callback(key_prefix="EnergyForce"))
 
     start = time.process_time()
