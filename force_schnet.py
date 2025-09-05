@@ -171,7 +171,6 @@ def train_single_fold(train_val_dataset: MemoryGraphDataset,
     energy_epochs = train_config["energy_epochs"]
     energy_early_stopping = train_config["energy_early_stopping"]
     energy_batch_size = train_config["energy_batch_size"]
-    model_prefix = train_config["model_prefix"]
 
     # Train energy-force model
     callbacks = []
@@ -212,9 +211,6 @@ def train_single_fold(train_val_dataset: MemoryGraphDataset,
     stop = time.process_time()
     print("Energy-force model training time: ", str(timedelta(seconds=stop - start)))
 
-    # Save the model
-    model_energy_force.save(model_prefix + str(model_index))
-    
     return hist
 
 def train_models(dataset: MemoryGraphDataset,
@@ -234,6 +230,7 @@ def train_models(dataset: MemoryGraphDataset,
     use_scaler = train_config["use_scaler"]
     scaler_path = train_config["scaler_path"]
     standardize_scale = train_config["standardize_scale"]
+    model_prefix = train_config["model_prefix"]
     do_search = train_config.get("do_search", False)
 
     # Scaling energy and forces.
@@ -266,6 +263,7 @@ def train_models(dataset: MemoryGraphDataset,
     
     for train_index, val_index in kf.split(X=np.expand_dims(train_val_index, axis=-1)):
         train_index, val_index = val_index, train_index # Switched train and test indices to keep training data separate
+        print(f"Training fold {model_index + 1}/{n_splits}")
         
         # Train single fold
         model_energy_force = models[model_index]
@@ -289,6 +287,9 @@ def train_models(dataset: MemoryGraphDataset,
         abs_val_index = train_val_index[val_index]
         
         if not do_search:
+            # Save the model
+            model_energy_force.save(model_prefix + str(model_index))
+
             evaluate_model(
                 dataset=dataset,
                 model_energy_force=model_energy_force,
@@ -319,7 +320,7 @@ def train_models(dataset: MemoryGraphDataset,
         model_energy_force.summary()
         energy_model = model_energy_force._model_energy
         energy_model.summary()
-
+    
     return model_energy_force, indices, hists, scaler
 
 def evaluate_model(dataset: MemoryGraphDataset,

@@ -132,9 +132,8 @@ def load_data(config: Dict) -> MemoryGraphDataset:
     # Check what atomic numbers are actually in the dataset
     all_atomic_numbers = []
     for i in range(len(dataset)):
-        node_numbers = dataset[i].get("node_number")
-        if node_numbers is not None:
-            all_atomic_numbers.extend(node_numbers)
+        all_atomic_numbers.extend(dataset[i]["node_number"])
+        
     unique_atomic_numbers = sorted(list(set(all_atomic_numbers)))
     print(f"Unique atomic numbers in dataset: {unique_atomic_numbers}")
     assert max(unique_atomic_numbers) < config["max_elements"], \
@@ -156,7 +155,7 @@ def create_model(train_config: Dict, model_config: Dict) -> EnergyForceModel:
     """
     # Create the base models
     model_energy = make_model(**model_config)
-    
+
     # Create energy-force model
     model_energy_force: EnergyForceModel = EnergyForceModel(
         model_energy=model_energy,
@@ -210,7 +209,6 @@ def train_single_fold(train_val_dataset: MemoryGraphDataset,
     energy_epochs = train_config["energy_epochs"]
     energy_early_stopping = train_config["energy_early_stopping"]
     energy_batch_size = train_config["energy_batch_size"]
-    model_prefix = train_config["model_prefix"]
 
     # Train energy-force model
     callbacks = []
@@ -249,9 +247,6 @@ def train_single_fold(train_val_dataset: MemoryGraphDataset,
     stop = time.process_time()
     print("Energy-force model training time: ", str(timedelta(seconds=stop - start)))
 
-    # Save the model
-    model_energy_force.save(model_prefix + str(model_index))
-    
     return hist
 
 def train_models(dataset: MemoryGraphDataset,
@@ -265,12 +260,14 @@ def train_models(dataset: MemoryGraphDataset,
                     List[tf.keras.callbacks.History],
                     Optional[EnergyForceExtensiveLabelScaler]
                 ]:
-    #print(model_config)
+    """Train models using cross-validation."""
+    print(model_config)
 
     n_splits = train_config["n_splits"]
     use_scaler = train_config["use_scaler"]
     scaler_path = train_config["scaler_path"]
     standardize_scale = train_config["standardize_scale"]
+    model_prefix = train_config["model_prefix"]
     do_search = train_config.get("do_search", False)
 
     # Scaling energy and forces.
@@ -328,6 +325,9 @@ def train_models(dataset: MemoryGraphDataset,
         abs_val_index = train_val_index[val_index]
         
         if not do_search:
+            # Save the model
+            model_energy_force.save(model_prefix + str(model_index))
+
             evaluate_model(
                 dataset=dataset,
                 model_energy_force=model_energy_force,
@@ -347,6 +347,7 @@ def train_models(dataset: MemoryGraphDataset,
             break
 
     if not do_search:
+        # Save training history and indices
         save_load_utils.save_history(hists, filename="histories.pkl")
         save_load_utils.save_training_indices(*indices)
 
@@ -367,6 +368,7 @@ def evaluate_model(dataset: MemoryGraphDataset,
                    train_config: Dict,
                    scaler: Optional[EnergyForceExtensiveLabelScaler] = None,
                    model_index: Optional[int] = None) -> None:
+    """Evaluate the trained model on train, validation, and test sets."""
     dataset_name = dataset.dataset_name
     model_suffix = f"_{model_index}" if model_index is not None else ""
 
