@@ -87,6 +87,7 @@ class BaseHDNNPTuner:
 
         # cutoff_rad = hp.Float("cutoff_rad", 30, 30, 8)
         # cutoff_ang = hp.Float("cutoff_ang", 30, 30, 8)
+        #rs_array_choice = "0.0 4.0 6.0 8.0"
         rs_array_choice = hp.Choice("Rs_array", [
             "0.0 4.0 6.0 8.0",
             #"0.0 3.0 5.0 7.0 9.0",
@@ -94,6 +95,7 @@ class BaseHDNNPTuner:
             "0.0 4.0 6.0 8.0 10.0 12.0 16.0",
             #"0.0 3.0 4.0 5.0 6.0 7.0 8.0 9.0 10.0 11.0 12.0"
         ])
+        #eta_array_choice = "0.0 0.08 0.3"
         eta_array_choice = hp.Choice("eta_array", [
             "0.0 0.08 0.3",
             #"0.03 0.16 0.5",
@@ -101,11 +103,13 @@ class BaseHDNNPTuner:
             "0.0 0.06 0.16 0.32 0.6 0.8 1.0",
             #"0.0 0.03 0.08 0.16 0.3 0.5 0.6 0.75 0.9 1.0"
         ])
+        #lambd_array_choice = "-1 1"
         lambd_array_choice = hp.Choice("lamb_array", [
             "-1 1",
             #"-1 0 1", 
             #"-1 -0.5 0 0.5 1"
         ])
+        #zeta_array_choice = "2 8 16"
         zeta_array_choice = hp.Choice("zeta_array", [
             "2 8 16",
             #"1 4 8 16",
@@ -113,22 +117,23 @@ class BaseHDNNPTuner:
             "1 2 4 8 16 32"
         ])
 
+        #charge_n_layers = 1
         charge_max_layers = 1
         charge_n_layers = hp.Int("charge_n_layers", 1, charge_max_layers, 1)
         charge_neurons = []
         charge_max_neurons = 51
-        #charge_max_neurons = 26
         for i in range(charge_max_layers):
+            #charge_neuron = 25
             charge_neuron = hp.Int(f"charge_neurons_{i}", 25, charge_max_neurons, 25)
             charge_neurons.append(charge_neuron)
             charge_max_neurons = charge_neuron + 1   # Ensure decreasing order
-            
-        charge_activation = hp.Choice("charge_activation", 
-                                    #["relu", "tanh", "elu", "swish", "leaky_relu"])
-                                    ["tanh"])        
         
+        #charge_activation = "tanh"
+        charge_activation = hp.Choice("charge_activation", 
+                                    ["relu", "tanh", "elu", "swish", "leaky_relu"])        
+        
+        energy_n_layers = 1
         energy_max_layers = 3
-        #energy_max_layers = 1
         energy_n_layers = hp.Int("energy_n_layers", 1, energy_max_layers, 1)
         energy_neurons = []
         energy_max_neurons = 276
@@ -395,7 +400,7 @@ if __name__ == "__main__":
     #     hypermodel=hypermodel,
     #     objective=kt.Objective("val_output_3_loss", direction="min"),
     #     max_trials=25,
-    #     overwrite=False,
+    #     overwrite=True,
     #     directory=TRIAL_FOLDER_NAME,
     #     project_name=config["project_name"],
     #     max_consecutive_failed_trials=1
@@ -404,9 +409,6 @@ if __name__ == "__main__":
     tuner.search_space_summary()
     tuner.search() 
     tuner.results_summary(num_trials=10)
-    n_best_hps = tuner.get_best_hyperparameters(num_trials=10)
-    with open(os.path.join("best_hp_hdnnp4th.json"), "w") as f:
-        json.dump(n_best_hps[0].values, f, indent=2)
 
     ## Random Search
     # random_tuner = MyRandomTuner(
@@ -443,8 +445,12 @@ if __name__ == "__main__":
     # with open(os.path.join("best_hp_grid.json"), "w") as f:
     #     json.dump(n_best_hps[0].values, f, indent=2)
 
-    hypermodel.deactivate_search(config)
-    best_model = hypermodel.build(n_best_hps[0])
-    n_best_hps = tuner.get_best_hyperparameters(num_trials=config["n_splits"])
-    best_models = [hypermodel.build(n_best_hps[i]) for i in range(len(n_best_hps))]
-    hypermodel.fit(n_best_hps[0], best_models)
+    if isinstance(tuner, kt.Hyperband):
+        n_best_hps = tuner.get_best_hyperparameters(num_trials=10)
+        with open(os.path.join("best_hp_hdnnp4th.json"), "w") as f:
+            json.dump(n_best_hps[0].values, f, indent=2)
+        hypermodel.deactivate_search(config)
+        best_model = hypermodel.build(n_best_hps[0])
+        n_best_hps = tuner.get_best_hyperparameters(num_trials=config["n_splits"])
+        best_models = [hypermodel.build(n_best_hps[i]) for i in range(len(n_best_hps))]
+        hypermodel.fit(n_best_hps[0], best_models)

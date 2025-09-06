@@ -83,24 +83,33 @@ class BaseSchnetTuner:
         """Build raw hyperparameters from the tuner."""
 
         # Model architecture hyperparameters
+        #input_embedding_dim = 32
         input_embedding_dim = hp.Choice("input_embedding_dim", [32, 64, 128, 256])
+        #interaction_units = 32
         interaction_units = hp.Choice("interaction_units", [32, 64, 128, 256])
+        #model_depth = 5
         model_depth = hp.Int("model_depth", 3, 8, 1)
         
         # Gaussian basis hyperparameters
+        #gauss_bins = 20
         gauss_bins = hp.Int("gauss_bins", 20, 101, 10)
+        #gauss_distance = 4.0
         gauss_distance = hp.Choice("gauss_distance", [4.0, 5.0, 6.0])
+        #gauss_offset = 0.0
         gauss_offset = hp.Choice("gauss_offset", [0.0, 0.5, 1.0])
+        #gauss_sigma = 0.2
         gauss_sigma = hp.Choice("gauss_sigma", [0.2, 0.4, 0.6])
         
         # Output MLP hyperparameters
+        #output_mlp_choice = "128 64 1"
         output_mlp_choice = hp.Choice("output_mlp_layers", [
-            "128 64 1",
-            "256 128 1", 
-            "128 128 64 1",
-            "256 128 64 1"
+           "128 64 1",
+           "256 128 1", 
+           "128 128 64 1",
+           "256 128 64 1"
         ])
 
+        #activation = "shifted_softplus"
         activation = hp.Choice("energy_activation", 
             ["relu", "tanh", "elu", "swish", "leaky_relu", "shifted_softplus"])
 
@@ -233,7 +242,7 @@ if __name__ == "__main__":
     #     hypermodel=hypermodel,
     #     objective=kt.Objective("val_output_2_loss", direction="min"),
     #     max_trials=25,
-    #     overwrite=False,
+    #     overwrite=True,
     #     directory=TRIAL_FOLDER_NAME,
     #     project_name=config["project_name"],
     #     max_consecutive_failed_trials=1
@@ -242,12 +251,14 @@ if __name__ == "__main__":
     tuner.search_space_summary()
     tuner.search() 
     tuner.results_summary(num_trials=10)
-    n_best_hps = tuner.get_best_hyperparameters(num_trials=10)
-    with open(os.path.join("best_hp_schnet.json"), "w") as f:
-        json.dump(n_best_hps[0].values, f, indent=2)
 
-    hypermodel.deactivate_search(config)
-    best_model = hypermodel.build(n_best_hps[0])
-    n_best_hps = tuner.get_best_hyperparameters(num_trials=config["n_splits"])
-    best_models = [hypermodel.build(n_best_hps[i]) for i in range(len(n_best_hps))]
-    hypermodel.fit(n_best_hps[0], best_models)
+    if isinstance(tuner, kt.Hyperband):
+        n_best_hps = tuner.get_best_hyperparameters(num_trials=10)
+        with open(os.path.join("best_hp_schnet.json"), "w") as f:
+            json.dump(n_best_hps[0].values, f, indent=2)
+
+        hypermodel.deactivate_search(config)
+        best_model = hypermodel.build(n_best_hps[0])
+        n_best_hps = tuner.get_best_hyperparameters(num_trials=config["n_splits"])
+        best_models = [hypermodel.build(n_best_hps[i]) for i in range(len(n_best_hps))]
+        hypermodel.fit(n_best_hps[0], best_models)
