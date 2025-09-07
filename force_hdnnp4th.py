@@ -28,6 +28,7 @@ from kgcnn.utils.plots import plot_predict_true, plot_train_test_loss, plot_test
 from kgcnn.utils.devices import set_devices_gpu
 from kgcnn.utils import constants, save_load_utils, activations, wandb_wizard
 from kgcnn.utils.tools import get_git_commit_hash
+from kgcnn.utils.data_splitter import subsample_dataset
 from kgcnn.model.force import EnergyForceModel
 from kgcnn.metrics.loss import RaggedMeanAbsoluteError, zero_loss_function
 
@@ -71,6 +72,8 @@ FORCE_LOSS_FACTOR            = 200.0 # Weight of the force loss
 
 N_SPLITS = 3 # Number of splits for cross-validation, used in KFold
 
+MAX_DATASET_SIZE = None  # we will subsample the dataset to this size for speed
+
 # SCALER PARAMETERS
 USE_SCALER = True # If True, the scaler will be used
 SCALER_PATH = "scaler.json" # None if no scaler is used
@@ -109,6 +112,7 @@ CONFIG_DATA = {
     "energy_loss_factor": ENERGY_LOSS_FACTOR,
     "force_loss_factor": FORCE_LOSS_FACTOR,
     "n_splits": N_SPLITS,
+    "max_dataset_size": MAX_DATASET_SIZE,
     "use_scaler": USE_SCALER,
     "scaler_path": SCALER_PATH,
     "standardize_scale": STANDARDIZE_SCALE,
@@ -140,6 +144,9 @@ def load_data(config: Dict) -> MemoryGraphDataset:
         f"Atomic number {max(unique_atomic_numbers)} exceeds max_elements {config['max_elements']}."
     assert config["elemental_mapping"] == unique_atomic_numbers, \
         f"Elemental mapping {config['elemental_mapping']} does not match unique atomic numbers {unique_atomic_numbers}."
+    
+    if config.get("max_dataset_size") is not None:
+        dataset = subsample_dataset(dataset, config["max_dataset_size"])
     
     return dataset
 

@@ -229,11 +229,6 @@ class MyHyperModel(kt.HyperModel, BaseHDNNP2ndTuner):
             models = [models]
 
         dataset = load_data(config)
-        dataset_name = dataset.dataset_name
-        np.random.seed(42)
-        subsample_indices = np.random.choice(len(dataset), size=min(config["max_dataset_size"], len(dataset)), replace=False)
-        dataset = dataset[subsample_indices]
-        dataset.dataset_name = dataset_name  # hack to keep the name after subsampling
 
         model_energy_force, indices, hists, scaler = train_models(dataset, models, model_config, outputs, config, **kwargs)
 
@@ -242,7 +237,7 @@ class MyHyperModel(kt.HyperModel, BaseHDNNP2ndTuner):
     def deactivate_search(self, train_config):
         self._hyp_search_config = train_config.copy()
         self._hyp_search_config["do_search"] = False
-        self._hyp_search_config["max_dataset_size"] = np.inf
+        self._hyp_search_config["max_dataset_size"] = None
         self._hyp_search_config["energy_early_stopping"] = 0
 
 if __name__ == "__main__":

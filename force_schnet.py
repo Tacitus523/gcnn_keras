@@ -28,6 +28,7 @@ from kgcnn.utils.plots import plot_predict_true, plot_train_test_loss, plot_test
 from kgcnn.utils.devices import set_devices_gpu
 from kgcnn.utils import constants, save_load_utils, activations, wandb_wizard
 from kgcnn.utils.tools import get_git_commit_hash
+from kgcnn.utils.data_splitter import subsample_dataset
 from kgcnn.model.force import EnergyForceModel
 
 # DEFAULT VALUES
@@ -55,6 +56,8 @@ GAUSS_SIGMA                  = 0.4 # Width of Gaussian basis functions
 LAST_MLP_UNITS               = [128, 64, 1] # Units in final MLP layers
 
 N_SPLITS = 3 # Number of splits for cross-validation, used in KFold
+
+MAX_DATASET_SIZE = None  # we will subsample the dataset to this size for speed
 
 # SCALER PARAMETERS
 USE_SCALER = True # If True, the scaler will be used
@@ -87,6 +90,7 @@ CONFIG_DATA = {
     "gauss_sigma": GAUSS_SIGMA,
     "last_mlp_units": LAST_MLP_UNITS,
     "n_splits": N_SPLITS,
+    "max_dataset_size": MAX_DATASET_SIZE,
     "use_scaler": USE_SCALER,
     "scaler_path": SCALER_PATH,
     "standardize_scale": STANDARDIZE_SCALE,
@@ -106,6 +110,9 @@ def load_data(config: Dict) -> MemoryGraphDataset:
     data_directory = os.path.normpath(data_directory)
     print("Dataset:", os.path.join(data_directory, file_name))
     print(dataset[0].keys())
+    
+    if config.get("max_dataset_size") is not None:
+        dataset = subsample_dataset(dataset, config["max_dataset_size"])
     
     return dataset
 
@@ -320,7 +327,7 @@ def train_models(dataset: MemoryGraphDataset,
         model_energy_force.summary()
         energy_model = model_energy_force._model_energy
         energy_model.summary()
-    
+
     return model_energy_force, indices, hists, scaler
 
 def evaluate_model(dataset: MemoryGraphDataset,
