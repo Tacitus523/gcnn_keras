@@ -28,7 +28,6 @@ from kgcnn.utils.plots import plot_predict_true, plot_train_test_loss, plot_test
 from kgcnn.utils.devices import set_devices_gpu
 from kgcnn.utils import constants, save_load_utils, activations, wandb_wizard
 from kgcnn.utils.tools import get_git_commit_hash
-from kgcnn.utils.data_splitter import subsample_dataset
 from kgcnn.model.force import EnergyForceModel
 
 # DEFAULT VALUES
@@ -48,6 +47,7 @@ FORCE_LOSS_FACTOR            = 200 # Weight of the force loss relative to the en
 # SCHNET MODEL HYPER PARAMETERS
 INPUT_EMBEDDING_DIM          = 128 # Output dimension of node embedding
 INTERACTION_UNITS            = 128 # Units in interaction layers
+ACTIVATION                   = "shifted_softplus" # Activation function
 MODEL_DEPTH                  = 6 # Number of interaction layers
 GAUSS_BINS                   = 25 # Number of Gaussian basis functions
 GAUSS_DISTANCE               = 5 # Distance cutoff for Gaussian basis
@@ -83,6 +83,7 @@ CONFIG_DATA = {
     "force_loss_factor": FORCE_LOSS_FACTOR,
     "input_embedding_dim": INPUT_EMBEDDING_DIM,
     "interaction_units": INTERACTION_UNITS,
+    "activation": ACTIVATION,
     "model_depth": MODEL_DEPTH,
     "gauss_bins": GAUSS_BINS,
     "gauss_distance": GAUSS_DISTANCE,
@@ -110,10 +111,7 @@ def load_data(config: Dict) -> MemoryGraphDataset:
     data_directory = os.path.normpath(data_directory)
     print("Dataset:", os.path.join(data_directory, file_name))
     print(dataset[0].keys())
-    
-    if config.get("max_dataset_size") is not None:
-        dataset = subsample_dataset(dataset, config["max_dataset_size"])
-    
+
     return dataset
 
 def create_model(train_config: Dict, model_config: Dict) -> EnergyForceModel:
@@ -258,6 +256,9 @@ def train_models(dataset: MemoryGraphDataset,
     train_val_index, test_index = train_test_split(
         data_indices, test_size=0.10, random_state=42, shuffle=True
     )
+    # Subsample training/validation set if specified
+    if train_config.get("max_dataset_size") is not None:
+        train_val_index = train_val_index[:min(train_config["max_dataset_size"], len(train_val_index))]
     train_val_dataset = dataset[train_val_index]
 
     if n_splits > 1:
@@ -466,6 +467,7 @@ def parse_arguments() -> Dict[str, Any]:
     return config_data
 
 def main(config: Dict[str, Any]) -> None:
+    activation = lambda x: activations.custom_activation(x, config["activation"])
     model_config = {
         "name": "Schnet",
         "inputs": [
@@ -480,7 +482,7 @@ def main(config: Dict[str, Any]) -> None:
         #"make_distance": True, 
         "expand_distance": True,
         "interaction_args": {
-            "units": config["interaction_units"], "use_bias": True, "activation": "kgcnn>shifted_softplus",
+            "units": config["interaction_units"], "use_bias": True, "activation": activation,
             "cfconv_pool": "sum"
         },
         "node_pooling_args": {"pooling_method": "sum"},
@@ -492,8 +494,11 @@ def main(config: Dict[str, Any]) -> None:
             "sigma": config["gauss_sigma"]
         },
         "verbose": 10,
-        "last_mlp": {"use_bias": [True, True, True], "units": config["last_mlp_units"],
-            "activation": ['kgcnn>shifted_softplus', 'kgcnn>shifted_softplus', 'linear']},
+        "last_mlp": {
+            "use_bias": [True] * len(config["last_mlp_units"]),
+            "units": config["last_mlp_units"],
+            "activation": [activation] * (len(config["last_mlp_units"]) - 1) + ["linear"]
+        },
         "output_embedding": "graph", "output_to_tensor": True,
         "use_output_mlp": False,
         "output_mlp": None

@@ -28,7 +28,6 @@ from kgcnn.utils.plots import plot_predict_true, plot_train_test_loss, plot_test
 from kgcnn.utils.devices import set_devices_gpu
 from kgcnn.utils import constants, save_load_utils, activations, wandb_wizard
 from kgcnn.utils.tools import get_git_commit_hash
-from kgcnn.utils.data_splitter import subsample_dataset
 from kgcnn.model.force import EnergyForceModel
 
 # DEFAULT VALUES
@@ -110,9 +109,6 @@ def load_data(config: Dict) -> MemoryGraphDataset:
     data_directory = os.path.normpath(data_directory)
     print("Dataset:", os.path.join(data_directory, file_name))
     print(dataset[0].keys())
-    
-    if config.get("max_dataset_size") is not None:
-        dataset = subsample_dataset(dataset, config["max_dataset_size"])
     
     return dataset
 
@@ -259,6 +255,9 @@ def train_models(dataset: MemoryGraphDataset,
     train_val_index, test_index = train_test_split(
         data_indices, test_size=0.10, random_state=42, shuffle=True
     )
+    # Subsample training/validation set if specified
+    if train_config.get("max_dataset_size") is not None:
+        train_val_index = train_val_index[:min(train_config["max_dataset_size"], len(train_val_index))]
     train_val_dataset = dataset[train_val_index]
 
     if n_splits > 1:
