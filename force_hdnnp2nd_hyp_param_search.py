@@ -219,7 +219,7 @@ class MyHyperModel(kt.HyperModel, BaseHDNNP2ndTuner):
         self._model_config = model_config
         return create_model(self._hyp_search_config, model_config)
     
-    def fit(self, hp, models, *args, **kwargs):
+    def fit(self, hp, models, dataset, *args, **kwargs):
         ks.backend.clear_session() # RAM is apparently not released between trials. This should clear some of it, but probably not all. https://github.com/keras-team/keras-tuner/issues/395
         config = self._hyp_search_config.copy()
         hp_config = self._hp_config
@@ -227,8 +227,6 @@ class MyHyperModel(kt.HyperModel, BaseHDNNP2ndTuner):
         outputs = self._outputs
         if not isinstance(models, List):
             models = [models]
-
-        dataset = load_data(config)
 
         model_energy_force, indices, hists, scaler = train_models(dataset, models, model_config, outputs, config, **kwargs)
 
@@ -267,8 +265,10 @@ if __name__ == "__main__":
     #     max_consecutive_failed_trials=1
     # )
     
+    dataset = load_data(config)
+
     tuner.search_space_summary()
-    tuner.search() 
+    tuner.search(dataset=dataset) 
     tuner.results_summary(num_trials=10)
 
     if isinstance(tuner, kt.Hyperband):
