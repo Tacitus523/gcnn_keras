@@ -53,6 +53,7 @@ CONV_UNITS                   = 128 # Units in convolution layers
 UPDATE_UNITS                 = 128 # Units in update layers
 MODEL_DEPTH                  = 6 # Number of interaction layers
 OUTPUT_MLP_UNITS             = [128, 1] # Units in output MLP layers
+ACTIVATION                   = "swish" # Activation function in hidden layers
 
 N_SPLITS = 3 # Number of splits for cross-validation, used in KFold
 
@@ -88,6 +89,7 @@ CONFIG_DATA = {
     "update_units": UPDATE_UNITS,
     "model_depth": MODEL_DEPTH,
     "output_mlp_units": OUTPUT_MLP_UNITS,
+    "activation": ACTIVATION,
     "n_splits": N_SPLITS,
     "max_dataset_size": MAX_DATASET_SIZE,
     "use_scaler": USE_SCALER,
@@ -112,6 +114,32 @@ def load_data(config: Dict) -> MemoryGraphDataset:
     
     return dataset
 
+def create_model_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    model_config = {
+            "name": "PAiNNEnergy",
+            "inputs": [
+                {"shape": [None], "name": "node_number", "dtype": "int64", "ragged": True},
+                {"shape": [None, 3], "name": "node_coordinates", "dtype": "float32", "ragged": True},
+                {"shape": [None, 2], "name": "range_indices", "dtype": "int64", "ragged": True},
+            ],
+            "input_embedding": {"node": {"input_dim": 95, "output_dim": config["input_embedding_dim"]}},
+            "equiv_initialize_kwargs": {"dim": 3, "method": "eps"},
+            "bessel_basis": {
+                "num_radial": config["bessel_num_radial"], 
+                "cutoff": config["bessel_cutoff"], 
+                "envelope_exponent": config["bessel_envelope_exponent"]
+            },
+            "pooling_args": {"pooling_method": "sum"},
+            "conv_args": {"units": config["conv_units"], "cutoff": None},
+            "update_args": {"units": config["update_units"]},
+            "depth": config["model_depth"], "verbose": 10,
+            "output_embedding": "graph",
+            "output_mlp": {"use_bias": [True] * len(config["output_mlp_units"]), 
+                          "units": config["output_mlp_units"], 
+                          "activation": [config["activation"]] * (len(config["output_mlp_units"]) - 1) + ["linear"]},
+        }
+    return model_config
+
 def create_model(train_config: Dict, model_config: Dict) -> EnergyForceModel:
     """Create and return a PAiNN energy-force model."""
     force_loss_factor = train_config["force_loss_factor"]
@@ -130,6 +158,10 @@ def create_model(train_config: Dict, model_config: Dict) -> EnergyForceModel:
         output_squeeze_states=True,
         is_physical_force=False
     )
+
+    # Name the outputs for better history tracking
+    model_energy_force.output_names = ["energy", "force"]
+
 
     # energy_initial_learning_rate = train_config["energy_initial_learning_rate"]
     # energy_final_learning_rate = train_config["energy_final_learning_rate"]
@@ -465,31 +497,7 @@ def parse_arguments() -> Dict[str, Any]:
     return config_data
 
 def main(config: Dict[str, Any]) -> None:
-    model_config = {
-        "name": "PAiNNEnergy",
-        "inputs": [
-            {"shape": [None], "name": "node_number", "dtype": "int64", "ragged": True},
-            {"shape": [None, 3], "name": "node_coordinates", "dtype": "float32", "ragged": True},
-            {"shape": [None, 2], "name": "range_indices", "dtype": "int64", "ragged": True},
-            #{"shape": (), "name": "total_nodes", "dtype": "int64"},
-            #{"shape": (), "name": "total_ranges", "dtype": "int64"}
-        ],
-        #"cast_disjoint_kwargs": {"padded_disjoint": False},
-        "input_embedding": {"node": {"input_dim": 95, "output_dim": config["input_embedding_dim"]}},
-        "equiv_initialize_kwargs": {"dim": 3, "method": "eps"},# "units": 128},
-        #"input_node_embedding": {"input_dim": 95, "output_dim": 128},
-        "bessel_basis": {
-            "num_radial": config["bessel_num_radial"],
-            "cutoff": config["bessel_cutoff"], 
-            "envelope_exponent": config["bessel_envelope_exponent"]
-        },
-        "pooling_args": {"pooling_method": "sum"},
-        "conv_args": {"units": config["conv_units"], "cutoff": None},
-        "update_args": {"units": config["update_units"]},
-        "depth": config["model_depth"], "verbose": 10,
-        "output_embedding": "graph",
-        "output_mlp": {"use_bias": [True, True], "units": config["output_mlp_units"], "activation": ["swish", "linear"]},
-    }
+    model_config = create_model_config(config)
 
     outputs = [
         {"name": "graph_labels", "ragged": False},

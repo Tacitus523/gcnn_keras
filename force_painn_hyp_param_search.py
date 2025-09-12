@@ -20,7 +20,7 @@ import keras_tuner as kt
 from kgcnn.utils import constants, callbacks, activations
 from kgcnn.utils.devices import set_devices_gpu
 
-from force_painn import load_data, train_models, evaluate_model, CONFIG_DATA, create_model
+from force_painn import load_data, train_models, evaluate_model, CONFIG_DATA, create_model, create_model_config
 
 TRIAL_FOLDER_NAME = "trials"
 PROJECT_NAME = "painn_hyp_search"
@@ -148,32 +148,6 @@ class BasePaiNNTuner:
             "output_mlp_units": output_mlp_units,
             "activation": activation,
         }
-    
-    def _build_model_config(self, hp_config: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
-        """Build the complete model configuration."""
-        return {
-            "name": "PAiNNEnergy",
-            "inputs": [
-                {"shape": [None], "name": "node_number", "dtype": "int64", "ragged": True},
-                {"shape": [None, 3], "name": "node_coordinates", "dtype": "float32", "ragged": True},
-                {"shape": [None, 2], "name": "range_indices", "dtype": "int64", "ragged": True},
-            ],
-            "input_embedding": {"node": {"input_dim": 95, "output_dim": hp_config["input_embedding_dim"]}},
-            "equiv_initialize_kwargs": {"dim": 3, "method": "eps"},
-            "bessel_basis": {
-                "num_radial": hp_config["bessel_num_radial"], 
-                "cutoff": hp_config["bessel_cutoff"], 
-                "envelope_exponent": hp_config["bessel_envelope_exponent"]
-            },
-            "pooling_args": {"pooling_method": "sum"},
-            "conv_args": {"units": hp_config["conv_units"], "cutoff": None},
-            "update_args": {"units": hp_config["update_units"]},
-            "depth": hp_config["model_depth"], "verbose": 10,
-            "output_embedding": "graph",
-            "output_mlp": {"use_bias": [True] * len(hp_config["output_mlp_units"]), 
-                          "units": hp_config["output_mlp_units"], 
-                          "activation": [hp_config["activation"]] * (len(hp_config["output_mlp_units"]) - 1) + ["linear"]},
-        }
 
 class MyHyperModel(kt.HyperModel, BasePaiNNTuner):
     def __init__(self, hyp_search_config: Optional[Dict[str, Any]] = None):
@@ -184,11 +158,9 @@ class MyHyperModel(kt.HyperModel, BasePaiNNTuner):
         self._model_config: Optional[Dict[str, Any]] = None
 
     def build(self, hp):
-        hp_config = self._build_hyperparameters(hp)
-        self._hp_config = hp_config
-        model_config = self._build_model_config(hp_config, self._hyp_search_config)
-        self._model_config = model_config
-        return create_model(self._hyp_search_config, model_config)
+        self._hp_config = self._build_hyperparameters(hp)
+        self._model_config = create_model_config(self._hp_config)
+        return create_model(self._hyp_search_config, self._model_config)
     
     def fit(self, hp, models, dataset, *args, **kwargs):
         ks.backend.clear_session() # RAM is apparently not released between trials. This should clear some of it, but probably not all. https://github.com/keras-team/keras-tuner/issues/395
@@ -207,7 +179,6 @@ class MyHyperModel(kt.HyperModel, BasePaiNNTuner):
         self._hyp_search_config = train_config.copy()
         self._hyp_search_config["do_search"] = False
         self._hyp_search_config["max_dataset_size"] = None
-        self._hyp_search_config["energy_early_stopping"] = 0
 
 if __name__ == "__main__":
     config: Dict[str, Any] = parse_args()
@@ -248,7 +219,6 @@ if __name__ == "__main__":
             json.dump(n_best_hps[0].values, f, indent=2)
 
         hypermodel.deactivate_search(config)
-        best_model = hypermodel.build(n_best_hps[0])
         n_best_hps = tuner.get_best_hyperparameters(num_trials=config["n_splits"])
         best_models = [hypermodel.build(n_best_hps[i]) for i in range(len(n_best_hps))]
-        hypermodel.fit(n_best_hps[0], best_models)
+        hypermodel.fit(n_best_hps[0], best_models, dataset)

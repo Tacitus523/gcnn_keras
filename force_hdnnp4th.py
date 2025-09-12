@@ -146,6 +146,66 @@ def load_data(config: Dict) -> MemoryGraphDataset:
     
     return dataset
 
+def create_model_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Create model configuration for HDNNP4th."""
+    model_config = {
+        "name": "HDNNP4th",
+        "inputs": [
+            {"shape": (None,), "name": "node_number", "dtype": "int64", "ragged": True},
+            {"shape": (None, 3), "name": "node_coordinates", "dtype": "float32", "ragged": True},
+            {"shape": (None, 2), "name": "range_indices", "dtype": "int64", "ragged": True},
+            {"shape": (None, 3), "name": "angle_indices_nodes", "dtype": "int64", "ragged": True},
+            {"shape": (1,), "name": "total_charge", "dtype": "float32", "ragged": False},
+            {"shape": (None,), "name": "esp", "dtype": "float32", "ragged": True},
+            {"shape": (None, 3), "name": "esp_grad", "dtype": "float32", "ragged": True}
+        ],
+        "g2_kwargs": {
+            "eta": config["eta_array"], 
+            "rs": config["rs_array"], 
+            "rc": config["cutoff_rad"], 
+            "elements": config["elemental_mapping"]
+        },
+        "g4_kwargs": {
+            "eta": config["eta_ang_array"], 
+            "zeta": config["zeta_array"], 
+            "lamda": config["lambd_array"], 
+            "rc": config["cutoff_ang"], 
+            "elements": config["elemental_mapping"],
+            "multiplicity": 2.0
+        },
+        "normalize_kwargs": {},
+        "mlp_charge_kwargs": {
+            "units": config["charge_hidden_layers"]+[1],
+            "num_relations": config["max_elements"],
+            "activation": [lambda x: activations.custom_activation(x, charge_activation) 
+                          for charge_activation in config["charge_hidden_activation"]]+["linear"]
+        },
+        "mlp_local_kwargs": {
+            "units": config["energy_hidden_layers"] + [1],
+            "num_relations": config["max_elements"],
+            "activation": [lambda x: activations.custom_activation(x, energy_activation) 
+                          for energy_activation in config["energy_hidden_activation"]] + ["linear"]
+        },
+        "cent_kwargs": {},
+        "electrostatic_kwargs": {
+            "name": "electrostatic_layer",
+            "use_physical_params": True,
+            "param_trainable": False
+        },
+        "qmmm_kwargs": {"name": "qmmm_layer"},
+        "node_pooling_args": {"pooling_method": "sum"},
+        "verbose": 10,
+        "output_embedding": "charge+qm_energy", 
+        "output_to_tensor": True,
+        "use_output_mlp": False,
+        "output_mlp": {
+            "use_bias": [True, True],
+            "units": [64, 1],
+            "activation": ["swish", "linear"]
+        },
+    }
+    return model_config
+
 def create_model(train_config: Dict, model_config: Dict) -> EnergyForceModel:
     """
     Create and return charge model, energy model, and energy-force model.
@@ -170,6 +230,9 @@ def create_model(train_config: Dict, model_config: Dict) -> EnergyForceModel:
         output_squeeze_states=True,
         is_physical_force=False
     )
+
+    # Name the outputs for better history tracking
+    model_energy_force.output_names = ["charge", "energy", "force"]
 
     charge_loss_factor = train_config["charge_loss_factor"]
     energy_loss_factor = train_config["energy_loss_factor"]
@@ -519,60 +582,7 @@ def parse_arguments() -> Dict[str, Any]:
     return config_data
 
 def main(config: Dict[str, Any]) -> None:
-    model_config = {
-        "name": "HDNNP4th",
-        "inputs": [
-            {"shape": (None,), "name": "node_number", "dtype": "int64", "ragged": True},
-            {"shape": (None, 3), "name": "node_coordinates", "dtype": "float32", "ragged": True},
-            {"shape": (None, 2), "name": "range_indices", "dtype": "int64", "ragged": True},
-            {"shape": (None, 3), "name": "angle_indices_nodes", "dtype": "int64", "ragged": True},
-            {"shape": (1,), "name": "total_charge", "dtype": "float32", "ragged": False},
-            {"shape": (None,), "name": "esp", "dtype": "float32", "ragged": True},
-            {"shape": (None, 3), "name": "esp_grad", "dtype": "float32", "ragged": True}
-        ],
-        "g2_kwargs": {
-            "eta": config["eta_array"], 
-            "rs": config["rs_array"], 
-            "rc": config["cutoff_rad"], 
-            "elements": config["elemental_mapping"]
-        },
-        "g4_kwargs": {
-            "eta": config["eta_ang_array"], 
-            "zeta": config["zeta_array"], 
-            "lamda": config["lambd_array"], 
-            "rc": config["cutoff_ang"], 
-            "elements": config["elemental_mapping"],
-            "multiplicity": 2.0
-        },
-        "normalize_kwargs": {},
-        "mlp_charge_kwargs": {
-            "units": config["charge_hidden_layers"]+[1],
-            "num_relations": config["max_elements"],
-            "activation": [lambda x: activations.custom_activation(x, charge_activation) for charge_activation in config["charge_hidden_activation"]]+["linear"]
-        },
-        "mlp_local_kwargs": {
-            "units": config["energy_hidden_layers"] + [1],
-            "num_relations": config["max_elements"],
-            "activation": [lambda x: activations.custom_activation(x, energy_activation) 
-                            for energy_activation in config["energy_hidden_activation"]] + ["linear"]
-        },
-        "cent_kwargs": {},
-        "electrostatic_kwargs": {
-            "name": "electrostatic_layer",
-            "use_physical_params": True,
-            "param_trainable": False
-        },
-        "qmmm_kwargs": {"name": "qmmm_layer"},
-        "node_pooling_args": {"pooling_method": "sum"},
-        "verbose": 10,
-        "output_embedding": "charge+qm_energy", "output_to_tensor": True,
-        "use_output_mlp": False,
-        "output_mlp": {
-            "use_bias": [True, True],
-            "units": [64, 1],
-            "activation": ["swish", "linear"]
-        },
-    }
+    model_config = create_model_config(config)
 
     outputs = [
         {"name": "charge", "shape": (None, 1), "ragged": True},

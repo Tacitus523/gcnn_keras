@@ -20,7 +20,7 @@ import keras_tuner as kt
 from kgcnn.utils import constants, callbacks, activations
 from kgcnn.utils.devices import set_devices_gpu
 
-from force_hdnnp2nd import load_data, train_models, evaluate_model, CONFIG_DATA, create_model
+from force_hdnnp2nd import load_data, train_models, evaluate_model, CONFIG_DATA, create_model, create_model_config
 
 TRIAL_FOLDER_NAME = "trials"
 PROJECT_NAME = "hdnnp2nd_hyp_search"
@@ -153,55 +153,16 @@ class BaseHDNNP2ndTuner:
 
         # Energy model architecture
         energy_layers = [raw_hp[f"energy_neurons_{i}"] for i in range(raw_hp["energy_n_layers"])]
-        energy_layers.append(1)
-        energy_activations = ([lambda x: activations.custom_activation(x, raw_hp["energy_activation"])] *
-            raw_hp["energy_n_layers"] + ["linear"])
+        energy_activations = [raw_hp["energy_activation"]] * raw_hp["energy_n_layers"]
 
         return {
             "rs_array": rs_array,
             "eta_array": eta_array,
+            "eta_ang_array": eta_array,  # Use same eta for angular
             "lambd_array": lambd_array,
             "zeta_array": zeta_array,
-            "energy_layers": energy_layers,
-            "energy_activations": energy_activations
-        }
-    
-    def _build_model_config(self, hp_config: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
-        """Build the complete model configuration."""
-        return {
-            "name": "HDNNP2nd",
-            "inputs": [
-                {"shape": (None,), "name": "node_number", "dtype": "int64", "ragged": True},
-                {"shape": (None, 3), "name": "node_coordinates", "dtype": "float32", "ragged": True},
-                {"shape": (None, 2), "name": "range_indices", "dtype": "int64", "ragged": True},
-                {"shape": (None, 3), "name": "angle_indices_nodes", "dtype": "int64", "ragged": True}
-            ],
-            "g2_kwargs": {
-                "eta": hp_config["eta_array"], 
-                "rs": hp_config["rs_array"], 
-                "rc": config["cutoff_rad"],
-                "elements": config["elemental_mapping"]
-            },
-            "g4_kwargs": {
-                "eta": hp_config["eta_array"], 
-                "zeta": hp_config["zeta_array"], 
-                "lamda": hp_config["lambd_array"], 
-                "rc": config["cutoff_ang"], 
-                "elements": config["elemental_mapping"], 
-                "multiplicity": 2.0
-            },
-            "normalize_kwargs": {},
-            "mlp_kwargs": {
-                "units": hp_config["energy_layers"],
-                "num_relations": config["max_elements"],
-                "activation": hp_config["energy_activations"]
-            },
-            "node_pooling_args": {"pooling_method": "sum"},
-            "verbose": 10,
-            "output_embedding": "graph", 
-            "output_to_tensor": True,
-            "use_output_mlp": False,
-            "output_mlp": None
+            "energy_hidden_layers": energy_layers,
+            "energy_hidden_activations": energy_activations
         }
 
 class MyHyperModel(kt.HyperModel, BaseHDNNP2ndTuner):
@@ -213,11 +174,12 @@ class MyHyperModel(kt.HyperModel, BaseHDNNP2ndTuner):
         self._model_config: Optional[Dict[str, Any]] = None
 
     def build(self, hp):
-        hp_config = self._build_hyperparameters(hp)
-        self._hp_config = hp_config
-        model_config = self._build_model_config(hp_config, self._hyp_search_config)
-        self._model_config = model_config
-        return create_model(self._hyp_search_config, model_config)
+        self._hp_config = self._build_hyperparameters(hp)
+        # Update the search config with hyperparameters
+        combined_config = self._hyp_search_config.copy()
+        combined_config.update(self._hp_config)
+        self._model_config = create_model_config(combined_config)
+        return create_model(self._hyp_search_config, self._model_config)
     
     def fit(self, hp, models, dataset, *args, **kwargs):
         ks.backend.clear_session() # RAM is apparently not released between trials. This should clear some of it, but probably not all. https://github.com/keras-team/keras-tuner/issues/395
@@ -236,7 +198,6 @@ class MyHyperModel(kt.HyperModel, BaseHDNNP2ndTuner):
         self._hyp_search_config = train_config.copy()
         self._hyp_search_config["do_search"] = False
         self._hyp_search_config["max_dataset_size"] = None
-        self._hyp_search_config["energy_early_stopping"] = 0
 
 if __name__ == "__main__":
     config: Dict[str, Any] = parse_args()
@@ -277,7 +238,6 @@ if __name__ == "__main__":
             json.dump(n_best_hps[0].values, f, indent=2)
 
         hypermodel.deactivate_search(config)
-        best_model = hypermodel.build(n_best_hps[0])
         n_best_hps = tuner.get_best_hyperparameters(num_trials=config["n_splits"])
         best_models = [hypermodel.build(n_best_hps[i]) for i in range(len(n_best_hps))]
-        hypermodel.fit(n_best_hps[0], best_models)
+        hypermodel.fit(n_best_hps[0], best_models, dataset)

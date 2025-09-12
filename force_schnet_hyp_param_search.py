@@ -20,7 +20,7 @@ import keras_tuner as kt
 from kgcnn.utils import constants, callbacks, activations
 from kgcnn.utils.devices import set_devices_gpu
 
-from force_schnet import load_data, train_models, evaluate_model, CONFIG_DATA, create_model
+from force_schnet import load_data, train_models, evaluate_model, CONFIG_DATA, create_model, create_model_config
 
 TRIAL_FOLDER_NAME = "trials"
 PROJECT_NAME = "schnet_hyp_search"
@@ -145,40 +145,23 @@ class BaseSchnetTuner:
             "gauss_distance": raw_hp["gauss_distance"],
             "gauss_offset": raw_hp["gauss_offset"],
             "gauss_sigma": raw_hp["gauss_sigma"],
-            "output_mlp_units": output_mlp_units,
+            "last_mlp_units": output_mlp_units,
             "activation": activation,
         }
-    
-    def _build_model_config(self, hp_config: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
-        """Build the complete model configuration."""
-        return {
-            "name": "Schnet",
-            "inputs": [
-                {"shape": [None], "name": "node_number", "dtype": "int64", "ragged": True},
-                {"shape": [None, 3], "name": "node_coordinates", "dtype": "float32", "ragged": True},
-                {"shape": [None, 2], "name": "range_indices", "dtype": "int64", "ragged": True},
-            ],
-            "input_embedding": {"node": {"input_dim": 95, "output_dim": hp_config["input_embedding_dim"]}},
-            "interaction_args": {
-                "units": hp_config["interaction_units"], "use_bias": True, "activation": hp_config["activation"],
-                "cfconv_pool": "sum"
-            },
-            "node_pooling_args": {"pooling_method": "sum"},
-            "depth": hp_config["model_depth"],
-            "gauss_args": {
-                "bins": hp_config["gauss_bins"],
-                "distance": hp_config["gauss_distance"], 
-                "offset": hp_config["gauss_offset"],
-                "sigma": hp_config["gauss_sigma"]
-            },
-            "verbose": 10,
-            "last_mlp": {"use_bias": [True] * len(hp_config["output_mlp_units"]), 
-                        "units": hp_config["output_mlp_units"],
-                        "activation": [hp_config["activation"]] * (len(hp_config["output_mlp_units"]) - 1) + ['linear']},
-            "output_embedding": "graph", "output_to_tensor": True,
-            "use_output_mlp": False,
-            "output_mlp": None
-        }
+
+
+class MyHyperModel(kt.HyperModel, BaseSchnetTuner):
+    def __init__(self, hyp_search_config: Optional[Dict[str, Any]] = None):
+        super().__init__()
+        self._hyp_search_config: Optional[Dict[str, Any]] = hyp_search_config.copy()
+        self._hyp_search_config["energy_epochs"] = self._hyp_search_config["max_epochs"] 
+        self._hp_config: Optional[Dict[str, Any]] = None
+        self._model_config: Optional[Dict[str, Any]] = None
+
+    def build(self, hp):
+        self._hp_config = self._build_hyperparameters(hp)
+        self._model_config = create_model_config(self._hp_config)
+        return create_model(self._hyp_search_config, self._model_config)
 
 class MyHyperModel(kt.HyperModel, BaseSchnetTuner):
     def __init__(self, hyp_search_config: Optional[Dict[str, Any]] = None):
@@ -212,7 +195,6 @@ class MyHyperModel(kt.HyperModel, BaseSchnetTuner):
         self._hyp_search_config = train_config.copy()
         self._hyp_search_config["do_search"] = False
         self._hyp_search_config["max_dataset_size"] = None
-        self._hyp_search_config["energy_early_stopping"] = 0
 
 if __name__ == "__main__":
     config: Dict[str, Any] = parse_args()
@@ -253,7 +235,6 @@ if __name__ == "__main__":
             json.dump(n_best_hps[0].values, f, indent=2)
 
         hypermodel.deactivate_search(config)
-        best_model = hypermodel.build(n_best_hps[0])
         n_best_hps = tuner.get_best_hyperparameters(num_trials=config["n_splits"])
         best_models = [hypermodel.build(n_best_hps[i]) for i in range(len(n_best_hps))]
-        hypermodel.fit(n_best_hps[0], best_models)
+        hypermodel.fit(n_best_hps[0], best_models, dataset)

@@ -137,6 +137,46 @@ def load_data(config: Dict) -> MemoryGraphDataset:
     
     return dataset
 
+def create_model_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Create model configuration for HDNNP2nd."""
+    model_config = {
+        "name": "HDNNP2nd",
+        "inputs": [
+            {"shape": (None,), "name": "node_number", "dtype": "int64", "ragged": True},
+            {"shape": (None, 3), "name": "node_coordinates", "dtype": "float32", "ragged": True},
+            {"shape": (None, 2), "name": "range_indices", "dtype": "int64", "ragged": True},
+            {"shape": (None, 3), "name": "angle_indices_nodes", "dtype": "int64", "ragged": True},
+        ],
+        "g2_kwargs": {
+            "eta": config["eta_array"], 
+            "rs": config["rs_array"], 
+            "rc": config["cutoff_rad"], 
+            "elements": config["elemental_mapping"]
+        },
+        "g4_kwargs": {
+            "eta": config["eta_ang_array"], 
+            "zeta": config["zeta_array"], 
+            "lamda": config["lambd_array"], 
+            "rc": config["cutoff_ang"], 
+            "elements": config["elemental_mapping"],
+            "multiplicity": 2.0
+        },
+        "normalize_kwargs": {},
+        "mlp_kwargs": {
+            "units": config["energy_hidden_layers"] + [1],
+            "num_relations": config["max_elements"],
+            "activation": [lambda x: activations.custom_activation(x, energy_activation) 
+                          for energy_activation in config["energy_hidden_activation"]] + ["linear"]
+        },
+        "node_pooling_args": {"pooling_method": "sum"},
+        "verbose": 10,
+        "output_embedding": "graph", 
+        "output_to_tensor": True,
+        "use_output_mlp": False,
+        "output_mlp": None
+    }
+    return model_config
+
 def create_model(train_config: Dict, model_config: Dict) -> EnergyForceModel:
     """Create and return an HDNNP2nd energy-force model."""
     force_loss_factor = train_config["force_loss_factor"]
@@ -153,6 +193,9 @@ def create_model(train_config: Dict, model_config: Dict) -> EnergyForceModel:
         output_squeeze_states=True,
         is_physical_force=False
     )
+
+    # Name the outputs for better history tracking
+    model_energy_force.output_names = ["energy", "force"]
 
     model_energy_force.compile(
         loss=["mean_squared_error", "mean_squared_error"],
@@ -477,41 +520,7 @@ def parse_arguments() -> Dict[str, Any]:
     return config_data
 
 def main(config: Dict[str, Any]) -> None:
-    model_config = {
-        "name": "HDNNP2nd",
-        "inputs": [
-            {"shape": (None,), "name": "node_number", "dtype": "int64", "ragged": True},
-            {"shape": (None, 3), "name": "node_coordinates", "dtype": "float32", "ragged": True},
-            {"shape": (None, 2), "name": "range_indices", "dtype": "int64", "ragged": True},
-            {"shape": (None, 3), "name": "angle_indices_nodes", "dtype": "int64", "ragged": True},
-        ],
-        "g2_kwargs": {
-            "eta": config["eta_array"], 
-            "rs": config["rs_array"], 
-            "rc": config["cutoff_rad"], 
-            "elements": config["elemental_mapping"]
-        },
-        "g4_kwargs": {
-            "eta": config["eta_ang_array"], 
-            "zeta": config["zeta_array"], 
-            "lamda": config["lambd_array"], 
-            "rc": config["cutoff_ang"], 
-            "elements": config["elemental_mapping"],
-            "multiplicity": 2.0
-        },
-        "normalize_kwargs": {},
-        "mlp_kwargs": {
-            "units": config["energy_hidden_layers"] + [1],
-            "num_relations": config["max_elements"],
-            "activation": [lambda x: activations.custom_activation(x, energy_activation) 
-                            for energy_activation in config["energy_hidden_activation"]] + ["linear"]
-        },
-        "node_pooling_args": {"pooling_method": "sum"},
-        "verbose": 10,
-        "output_embedding": "graph", "output_to_tensor": True,
-        "use_output_mlp": False,
-        "output_mlp": None
-    }
+    model_config = create_model_config(config)
 
     outputs = [
         {"name": "graph_labels", "ragged": False},

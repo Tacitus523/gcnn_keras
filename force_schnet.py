@@ -114,6 +114,44 @@ def load_data(config: Dict) -> MemoryGraphDataset:
 
     return dataset
 
+def create_model_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Create model configuration for SchNet."""
+    model_config = {
+        "name": "Schnet",
+        "inputs": [
+            {"shape": [None], "name": "node_number", "dtype": "int64", "ragged": True},
+            {"shape": [None, 3], "name": "node_coordinates", "dtype": "float32", "ragged": True},
+            {"shape": [None, 2], "name": "range_indices", "dtype": "int64", "ragged": True},
+        ],
+        "input_embedding": {
+            "node": {"input_dim": 95, "output_dim": config["input_embedding_dim"]}
+        },
+        "interaction_args": {
+            "units": config["interaction_units"],
+            "use_bias": True,
+            "activation": config["activation"],
+            "cfconv_pool": "sum"
+        },
+        "node_pooling_args": {"pooling_method": "sum"},
+        "depth": config["model_depth"],
+        "gauss_args": {
+            "bins": config["gauss_bins"],
+            "distance": config["gauss_distance"],
+            "offset": config["gauss_offset"],
+            "sigma": config["gauss_sigma"]
+        },
+        "verbose": 10,
+        "last_mlp": {
+            "use_bias": [True] * len(config["last_mlp_units"]),
+            "units": config["last_mlp_units"],
+            "activation": [config["activation"]] * (len(config["last_mlp_units"]) - 1) + ["linear"]
+        },
+        "output_embedding": "graph",
+        "output_to_tensor": True,
+        "output_mlp": None
+    }
+    return model_config
+
 def create_model(train_config: Dict, model_config: Dict) -> EnergyForceModel:
     """Create and return a SchNet energy-force model."""
     force_loss_factor = train_config["force_loss_factor"]
@@ -132,6 +170,9 @@ def create_model(train_config: Dict, model_config: Dict) -> EnergyForceModel:
         output_squeeze_states=True,
         is_physical_force=False
     )
+
+    # Name the outputs for better history tracking
+    model_energy_force.output_names = ["energy", "force"]
 
     # energy_initial_learning_rate = train_config["energy_initial_learning_rate"]
     # energy_final_learning_rate = train_config["energy_final_learning_rate"]
@@ -467,42 +508,7 @@ def parse_arguments() -> Dict[str, Any]:
     return config_data
 
 def main(config: Dict[str, Any]) -> None:
-    activation = lambda x: activations.custom_activation(x, config["activation"])
-    model_config = {
-        "name": "Schnet",
-        "inputs": [
-            {"shape": [None], "name": "node_number", "dtype": "int64", "ragged": True},
-            {"shape": [None, 3], "name": "node_coordinates", "dtype": "float32", "ragged": True},
-            {"shape": [None, 2], "name": "range_indices", "dtype": "int64", "ragged": True},
-            # {"shape": (), "name": "total_nodes", "dtype": "int64"},
-            # {"shape": (), "name": "total_ranges", "dtype": "int64"}
-        ],
-        #"cast_disjoint_kwargs": {"padded_disjoint": False},
-        "input_embedding": {"node": {"input_dim": 95, "output_dim": config["input_embedding_dim"]}},
-        #"make_distance": True, 
-        "expand_distance": True,
-        "interaction_args": {
-            "units": config["interaction_units"], "use_bias": True, "activation": activation,
-            "cfconv_pool": "sum"
-        },
-        "node_pooling_args": {"pooling_method": "sum"},
-        "depth": config["model_depth"],
-        "gauss_args": {
-            "bins": config["gauss_bins"],
-            "distance": config["gauss_distance"], 
-            "offset": config["gauss_offset"],
-            "sigma": config["gauss_sigma"]
-        },
-        "verbose": 10,
-        "last_mlp": {
-            "use_bias": [True] * len(config["last_mlp_units"]),
-            "units": config["last_mlp_units"],
-            "activation": [activation] * (len(config["last_mlp_units"]) - 1) + ["linear"]
-        },
-        "output_embedding": "graph", "output_to_tensor": True,
-        "use_output_mlp": False,
-        "output_mlp": None
-    }
+    model_config = create_model_config(config)
 
     outputs = [
         {"name": "graph_labels", "ragged": False},
