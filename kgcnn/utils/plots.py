@@ -5,6 +5,9 @@ import seaborn as sns
 import tensorflow as tf
 import os
 
+# Set seaborn context for better plot aesthetics
+sns.set_context("talk")
+
 
 def plot_train_test_loss(histories: list, loss_name: str = None,
                          val_loss_name: str = None, data_unit: str = "", model_name: str = "",
@@ -45,50 +48,86 @@ def plot_train_test_loss(histories: list, loss_name: str = None,
     if not isinstance(val_loss_name, list):
         val_loss_name = [val_loss_name]
 
+    def pad_histories_to_equal_length(histories_list):
+        """Pad histories to equal length by filling with NaN for shorter histories."""
+        if not histories_list:
+            return np.array([])
+        
+        max_length = max(len(hist) for hist in histories_list)
+        padded_histories = []
+        
+        for hist in histories_list:
+            if len(hist) < max_length:
+                # Pad with NaN values to preserve the longest training curves
+                padded = np.full(max_length, np.nan)
+                padded[:len(hist)] = hist
+                padded_histories.append(padded)
+            else:
+                padded_histories.append(np.array(hist))
+        
+        return np.array(padded_histories)
+    
+    def compute_mean_std_ignoring_nan(array, axis=0):
+        """Compute mean and std while ignoring NaN values."""
+        return np.nanmean(array, axis=axis), np.nanstd(array, axis=axis)
+
     train_loss = []
     for x in loss_name:
-        loss = np.array([np.array(hist[x]) for hist in histories])
-        train_loss.append(loss)
+        loss_histories = [np.array(hist[x]) for hist in histories]
+        loss_padded = pad_histories_to_equal_length(loss_histories)
+        train_loss.append(loss_padded)
     val_loss = []
     for x in val_loss_name:
-        loss = np.array([hist[x] for hist in histories])
-        val_loss.append(loss)
+        loss_histories = [hist[x] for hist in histories]
+        loss_padded = pad_histories_to_equal_length(loss_histories)
+        val_loss.append(loss_padded)
 
     if figsize is None:
-        figsize = [6.4, 4.8]
+        figsize = [12, 6]
     if dpi is None:
         dpi = 100.0
     fig = plt.figure(figsize=figsize, dpi=dpi)
     for i, x in enumerate(train_loss):
-        vp = plt.plot(np.arange(len(np.mean(x, axis=0))), np.mean(x, axis=0), alpha=0.85, label=loss_name[i])
-        plt.fill_between(np.arange(len(np.mean(x, axis=0))),
-                         np.mean(x, axis=0) - np.std(x, axis=0),
-                         np.mean(x, axis=0) + np.std(x, axis=0), color=vp[0].get_color(), alpha=0.2
-                         )
+        mean_x, std_x = compute_mean_std_ignoring_nan(x, axis=0)
+        epochs = np.arange(len(mean_x))
+        vp = plt.plot(epochs, mean_x, alpha=0.85, label=loss_name[i])
+        plt.fill_between(epochs, mean_x - std_x, mean_x + std_x, 
+                         color=vp[0].get_color(), alpha=0.2)
     for i, y in enumerate(val_loss):
-        val_step = len(train_loss[i][0]) / len(val_loss[i][0])
-        vp = plt.plot(np.arange(len(np.mean(y, axis=0))) * val_step + val_step, np.mean(y, axis=0), alpha=0.85,
-                      label=val_loss_name[i])
-        plt.fill_between(np.arange(len(np.mean(y, axis=0))) * val_step + val_step,
-                         np.mean(y, axis=0) - np.std(y, axis=0),
-                         np.mean(y, axis=0) + np.std(y, axis=0), color=vp[0].get_color(), alpha=0.2
-                         )
-        plt.scatter([len(train_loss[i][0])], [np.mean(y, axis=0)[-1]],
-                    label=r"{0}: {1:0.4f} $\pm$ {2:0.4f} ".format(
-                        val_loss_name[i], np.mean(y, axis=0)[-1],
-                        np.std(y, axis=0)[-1]) + data_unit, color=vp[0].get_color()
-                    )
+        mean_y, std_y = compute_mean_std_ignoring_nan(y, axis=0)
+        val_step = len(train_loss[i][0]) / len(y[0])
+        epochs = np.arange(len(mean_y)) * val_step + val_step
+        vp = plt.plot(epochs, mean_y, alpha=0.85, label=val_loss_name[i])
+        plt.fill_between(epochs, mean_y - std_y, mean_y + std_y, 
+                         color=vp[0].get_color(), alpha=0.2)
+        plt.scatter([len(train_loss[i][0])], [mean_y[-1]],
+                    label=f"{mean_y[-1]:0.4f} $\\pm$ {std_y[-1]:0.4f} {data_unit}", 
+                    color=vp[0].get_color())
     plt.xlabel('Epochs')
     plt.ylabel('Loss')
-    val_loss_array = np.stack(val_loss, axis=0)
-    if val_loss_array.shape[2] <= X_MIN:
-        X_MIN = 0
+    # Calculate y-axis limits considering NaN values
+    all_val_data = []
+    for val_data in val_loss:
+        # Get data starting from X_MIN, ignoring NaN values
+        for row in val_data:
+            valid_data = row[X_MIN:][~np.isnan(row[X_MIN:])]
+            if len(valid_data) > 0:
+                all_val_data.extend(valid_data)
+    
+    if all_val_data:
+        y_max = np.percentile(all_val_data, 90)
+        plt.ylim(top=y_max, bottom=0)
+    
     plt.xlim(left=X_MIN)
-    plt.ylim(top=np.max(np.percentile(val_loss_array[:, :, X_MIN:], 90, axis=2)), bottom=0)
     #plt.title(dataset_name + " training curve for " + model_name)
-    plt.legend(loc='upper right', fontsize='small', bbox_to_anchor=(1.05, 1))
+    
+    plt.legend(loc='center left', fontsize='small', bbox_to_anchor=(1.02, 0.5))
+    
+    plt.tight_layout()
+
     if filepath is not None:
-        plt.savefig(os.path.join(filepath, model_name + "_" + dataset_name + "_" + file_name))
+        plt.savefig(os.path.join(filepath, model_name + "_" + dataset_name + "_" + file_name), 
+                   bbox_inches='tight', dpi=dpi)
     if show_fig:
         plt.show()
     return fig
