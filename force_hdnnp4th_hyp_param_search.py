@@ -325,7 +325,7 @@ if __name__ == "__main__":
     hypermodel = MyHyperModel(hyp_search_config=hyp_param_search_params)
     tuner = kt.Hyperband(
         hypermodel=hypermodel,
-        objective=kt.Objective("val_output_3_loss", direction="min"),
+        objective=kt.Objective("val_force_loss", direction="min"),
         max_epochs=hyp_param_search_params["max_epochs"],
         factor=hyp_param_search_params["hyperband_factor"],
         hyperband_iterations=1,
@@ -336,7 +336,7 @@ if __name__ == "__main__":
     )
     # tuner = kt.GridSearch(
     #     hypermodel=hypermodel,
-    #     objective=kt.Objective("val_output_3_loss", direction="min"),
+    #     objective=kt.Objective("val_force_loss", direction="min"),
     #     max_trials=25,
     #     overwrite=True,
     #     directory=TRIAL_FOLDER_NAME,
@@ -352,7 +352,7 @@ if __name__ == "__main__":
 
     ## Random Search
     # random_tuner = MyRandomTuner(
-    #     objective=kt.Objective("val_output_3_loss", direction="min"),
+    #     objective=kt.Objective("val_force_loss", direction="min"),
     #     max_trials=500,
     #     overwrite=False,
     #     directory=TRIAL_FOLDER_NAME,
@@ -371,7 +371,7 @@ if __name__ == "__main__":
 
     # # Grid Search
     # grid_tuner = MyGridSearchTuner(
-    #     objective=kt.Objective("val_output_3_loss", direction="min"),
+    #     objective=kt.Objective("val_force_loss", direction="min"),
     #     max_trials=1000,
     #     overwrite=False,
     #     directory=TRIAL_FOLDER_NAME,

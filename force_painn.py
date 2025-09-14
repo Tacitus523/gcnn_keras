@@ -138,6 +138,8 @@ def create_model_config(config: Dict[str, Any]) -> Dict[str, Any]:
                           "units": config["output_mlp_units"], 
                           "activation": [config["activation"]] * (len(config["output_mlp_units"]) - 1) + ["linear"]},
         }
+    print("Model config:")
+    print(model_config) 
     return model_config
 
 def create_model(train_config: Dict, model_config: Dict) -> EnergyForceModel:
@@ -173,10 +175,13 @@ def create_model(train_config: Dict, model_config: Dict) -> EnergyForceModel:
     #     alpha=energy_final_learning_rate/energy_initial_learning_rate
     # )
     
+    optimizer = ks.optimizers.Adam()
+    optimizer.clipnorm = 1.0 # Gradient clipping to avoid exploding gradients
+
     model_energy_force.compile(
         loss=["mean_squared_error", "mean_squared_error"],
         #optimizer=ks.optimizers.Adam(lr_schedule),
-        optimizer=ks.optimizers.Adam(),
+        optimizer=optimizer,
         metrics=None,
         loss_weights=[1/force_loss_factor, 1-1/force_loss_factor]
     )
@@ -223,7 +228,8 @@ def train_single_fold(train_val_dataset: MemoryGraphDataset,
             monitor="val_loss",
             mode="min",
             patience=energy_early_stopping,
-            verbose=0
+            verbose=0,
+            restore_best_weights=True
         )
         callbacks.append(earlystop)
 
@@ -260,7 +266,6 @@ def train_models(dataset: MemoryGraphDataset,
                     Optional[EnergyForceExtensiveLabelScaler]
                 ]:
     """Train models using cross-validation."""
-    print(model_config)
 
     n_splits = train_config["n_splits"]
     use_scaler = train_config["use_scaler"]
