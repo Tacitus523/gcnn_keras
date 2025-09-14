@@ -139,7 +139,7 @@ def read_xyz_file(file_path, delimiter: str = None, line_by_line=False):
             if len(line_list) <= 1:
                 logging.error("Expected to read atom-coordinate block but got comment or line count instead.")
             atoms.append(str(line_list[0]).lower().capitalize())
-            coordinates.append([float(x) for x in line_list[1:]])
+            coordinates.append([float(x) for x in line_list[1:4]])
             if num == 1:
                 # This was last line for this conformer. Append result and reset current list.
                 mol_list.append([atoms, coordinates])

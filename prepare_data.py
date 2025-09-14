@@ -7,7 +7,7 @@ import os
 from os.path import join
 import shutil
 import warnings
-from typing import Dict, Sequence
+from typing import Dict, Sequence, Optional, List, Tuple
 
 from ase.io import read as read_molecule
 
@@ -28,12 +28,28 @@ GEOMETRY_FILE = "ThiolDisulfidExchange.xyz" # path to geometry-file, gromacs-for
 ENERGY_FILE = "energy_diff.txt" # path to energy-file, no header, separated by new lines, in Hartree
 FORCE_FILE = "forces.xyz" # path to force-file, "" if not available, in Eh/Bohr, apparently given like that from Orca
 CHARGE_FILE = "charges.txt" # path to charge-file, one line per molecule geometry,  "" if not available, in elementary charges
-ESP_FILE = "esps_by_mm.txt" # path to esp caused by mm atoms, one line per molecule geometry, "" if not available, in V
+ESP_FILE = "esps_by_mm.txt" # path to esp caused by mm atoms, one line per molecule geometry, "" if not available, in Volts, converted to Hartree/electron
 ESP_GRAD_FILE = "esp_gradients.txt" # path to the ESP gradients, "" if not available, in Eh/Bohr^2, I hope
 CUTOFF = 10.0 # Max distance for bonds and angles to be considered relevant, None if not available, in Angstrom, converted to Bohr, default 10, CONSIDER CUTOFF IN YOUR SYMMETRY FUNCTIONS
 MAX_NEIGHBORS = 25 # Maximal neighbors per atom to be considered relevant, disregards neighbors within cutoff distance if too small
 PREFIX = "ThiolDisulfidExchange" # prefix to generated files, compulsary for kgcnn read-in
-TARGET_FOLDER = "kgcnn_inputs" # target folder to save the data
+TARGET_FOLDER = "kgcnn_inputs2" # target folder to save the data
+
+# Alternative method of giving the data via extxyz-file
+# Geometry: Angstrom --> Bohr
+# Energy: eV --> Hartree
+# Forces: eV/Angstrom --> Hartree/Bohr
+# Charges: elementary charges --> elementary charges
+# ESP: Volts (eV/electron) --> Hartree/electron
+# ESP Gradients: Volts/Angstrom (eV/electron/Angstrom) --> Hartree/electron/Bohr
+EXTXYZ_FILE = None # "geoms.extxyz" # Path to extxyz-file containing all data, None if not used
+# Keys for extxyz-file, only used if EXTXYZ_FILE is not None
+EXTXYZ_ENERGY_KEY = "ref_energy" # Key in extxyz-file for energy
+EXTXYZ_FORCE_KEY = "ref_force" # Key in extxyz-file for forces
+EXTXYZ_CHARGE_KEY = "ref_charge" # Key in extxyz-file for charges
+EXTXYZ_TOTAL_CHARGE_KEY = "total_charge" # Key in extxyz-file for total charge
+EXTXYZ_ESP_KEY = "esp" # Key in extxyz-file for ESP
+EXTXYZ_ESP_GRAD_KEY = "esp_gradient" # Key in extxyz-file for
 
 def parse_args() -> Dict:
     ap = argparse.ArgumentParser(description="Give config file")
@@ -69,28 +85,18 @@ def parse_args() -> Dict:
     config_data.setdefault("PREFIX", PREFIX)
     config_data.setdefault("TARGET_FOLDER", TARGET_FOLDER)
 
+    config_data.setdefault("EXTXYZ_FILE", EXTXYZ_FILE)
+    config_data.setdefault("EXTXYZ_ENERGY_KEY", EXTXYZ_ENERGY_KEY)
+    config_data.setdefault("EXTXYZ_FORCE_KEY", EXTXYZ_FORCE_KEY)
+    config_data.setdefault("EXTXYZ_CHARGE_KEY", EXTXYZ_CHARGE_KEY)
+    config_data.setdefault("EXTXYZ_TOTAL_CHARGE_KEY", EXTXYZ_TOTAL_CHARGE_KEY)
+    config_data.setdefault("EXTXYZ_ESP_KEY", EXTXYZ_ESP_KEY)
+    config_data.setdefault("EXTXYZ_ESP_GRAD_KEY", EXTXYZ_ESP_GRAD_KEY)
+
     config_data["CUTOFF"] = float(config_data["CUTOFF"])
     config_data["MAX_NEIGHBORS"] = int(config_data["MAX_NEIGHBORS"])
 
     return config_data
-
-def copy_data(geometry_path: str, charge_path: str, esp_path: str, esp_grad_path: str, force_path: str, prefix: str, target_path: str) -> None:
-    target_geometry_path = join(target_path, f"{prefix}.xyz")
-    target_charge_path = join(target_path, f"charges.txt")
-    target_esp_path = join(target_path, f"esps_by_mm.txt")
-    target_esp_grad_path = join(target_path, f"esp_gradients.txt")
-    target_force_path = join(target_path, f"forces.xyz")
-
-    if os.path.abspath(geometry_path) != os.path.abspath(target_geometry_path):
-        shutil.copyfile(geometry_path, target_geometry_path)
-    if os.path.abspath(charge_path) != os.path.abspath(target_charge_path):
-        shutil.copyfile(charge_path, target_charge_path)
-    if os.path.abspath(esp_path) != os.path.abspath(target_esp_path) and os.path.isfile(esp_path): # ESP is optional
-        shutil.copyfile(esp_path, target_esp_path)
-    if os.path.abspath(esp_grad_path) != os.path.abspath(target_esp_grad_path) and os.path.isfile(esp_grad_path): # ESP gradients are optional
-        shutil.copyfile(esp_grad_path, target_esp_grad_path)
-    if os.path.abspath(force_path) != os.path.abspath(target_force_path) and os.path.isfile(force_path): # force is optional
-        shutil.copyfile(force_path, target_force_path)
 
 def read_irregular_file(file_path, conversion_factor=1.0):
     data = []
@@ -110,6 +116,62 @@ def read_forces_file(file_path: str) -> Sequence:
     all_forces = [molecule.positions for molecule in all_molecules]
     return all_forces
 
+def get_charges(config: Dict[str, any]) -> Tuple[Optional[List[np.ndarray]], Optional[List[float]]]:
+    charge_path = join(config["DATA_FOLDER"], config["CHARGE_FILE"])
+
+    try:
+        charges = read_irregular_file(charge_path)
+        total_charges = []
+        for i in range(len(charges)):
+            total_charge = np.sum(charges[i])
+            total_charges.append(total_charge)
+        print("Got Charges")
+    except FileNotFoundError:
+        print("No Charges")
+        charges = None
+        total_charges = None
+
+def get_forces(config: Dict[str, any]) -> Optional[List[np.ndarray]]:
+    force_path = join(config["DATA_FOLDER"], config["FORCE_FILE"])
+    if config["FORCE_FILE"] == "":
+        print("No Forces")
+        return None
+    try:
+        forces = read_forces_file(force_path)
+        print("Got Forces")
+        return forces
+    except FileNotFoundError:
+        print("No Forces")
+        return None
+
+def get_esps(config: Dict[str, any]) -> Optional[List[np.ndarray]]:
+    esp_path = join(config["DATA_FOLDER"], config["ESP_FILE"])
+    if config["ESP_FILE"] == "":
+        print("No ESPs")
+        return None
+    try:
+        V_to_au = constants.V_to_au
+        esps = read_irregular_file(esp_path, conversion_factor=V_to_au)
+        print("Got ESPs")
+        return esps
+    except FileNotFoundError:
+        print("No ESPs")
+        return None
+    
+def get_esp_grads(config: Dict[str, any]) -> Optional[List[np.ndarray]]:
+    esp_grad_path = join(config["DATA_FOLDER"], config["ESP_GRAD_FILE"])
+    if config["ESP_GRAD_FILE"] == "":
+        print("No ESP Grads")
+        return None
+    try:
+        esp_grads = read_irregular_file(esp_grad_path)
+        print("Got ESP Grads")
+        return esp_grads
+    except FileNotFoundError:
+        print("No ESP Grads")
+        return None
+
+
 def make_and_write_csv(energy_path: str, total_charge: np.ndarray | None, prefix: str, target_path: str) -> None:
     """Prepares the csv for fourth generation HDNNP
 
@@ -123,86 +185,87 @@ def make_and_write_csv(energy_path: str, total_charge: np.ndarray | None, prefix
         df["total_charge"] = total_charge
     df.to_csv(join(target_path,f"{prefix}.csv"), index=False, header=True, sep=',')
     
-def prepare_kgcnn_dataset(data_directory: str, energy_path: str, dataset_name: str, cutoff: float, max_neighbors: int) -> None:
+def prepare_kgcnn_dataset(config: Dict[str, any]) -> None:
+    data_folder = config["DATA_FOLDER"]
+    geometry_file = config["GEOMETRY_FILE"]
+    energy_file = config["ENERGY_FILE"]
+    extyxz_file = config["EXTXYZ_FILE"]
+
+    cutoff = config["CUTOFF"]
+    max_neighbors = config["MAX_NEIGHBORS"]
+    dataset_name = config["PREFIX"]
+    target_folder = config["TARGET_FOLDER"]
+
+    geometry_path = join(data_folder, geometry_file)
+    energy_path = join(data_folder, energy_file)
+    
     file_name=f"{dataset_name}.csv"
     
-    dataset = QMDataset(data_directory=data_directory, file_name=file_name, dataset_name=dataset_name)
+    charges, total_charges = get_charges(config) 
+    forces = get_forces(config)
+    esps = get_esps(config)
+    esp_grads = get_esp_grads(config)
+    
+    make_and_write_csv(energy_path=energy_path, total_charge=total_charges, prefix=dataset_name, target_path=target_folder)
+
+    dataset = QMDataset(
+        data_directory=target_folder, 
+        file_name=file_name, 
+        dataset_name=dataset_name,
+        file_name_xyz=geometry_path,
+    )
+
     dataset.prepare_data(overwrite=True, make_sdf = True)
     #dataset.read_in_memory(label_column_name="energy", additional_callbacks = {'total_charge': lambda mg, dd: dd['total_charge']})
     dataset.read_in_memory(label_column_name="energy")
-    
-    # Coordinates in a.u.
+
+    print(f"Setting external properties for {len(dataset)} molecules")
     for i in range(len(dataset)):
-        dataset[i]["node_coordinates"] *= constants.angstrom_to_bohr
+        dataset[i]["node_coordinates"] *= constants.angstrom_to_bohr # Convert to Bohr
 
-    dataset.map_list(method="set_range", max_distance=(cutoff+1.0)*constants.angstrom_to_bohr, max_neighbours=max_neighbors)
-    dataset.map_list(method="set_angle")
-    dataset.map_list(method="count_nodes_and_edges", total_nodes="total_nodes", total_edges="total_ranges", count_nodes="node_number", count_edges="range_indices")
-    
-    charge_path = os.path.join(os.path.normpath(os.path.dirname(dataset.file_path)), "charges.txt")
-    try:
-        charges = read_irregular_file(charge_path)
-        total_charges = []
-        for i in range(len(dataset)):
+        if charges is not None:
             dataset[i].set("charge", charges[i])
-            total_charge = np.sum(charges[i])
-            dataset[i].set("total_charge", total_charge)
-            total_charges.append(total_charge)
-        print("Got Charges")
-    except FileNotFoundError:
-        print("No Charges")
-        total_charge = None
+            dataset[i].set("total_charge", total_charges[i])
 
-    force_path = os.path.join(os.path.normpath(os.path.dirname(dataset.file_path)), "forces.xyz")
-    try:
-        forces = read_forces_file(force_path)
-        for i in range(len(dataset)):
-            dataset[i].set("force", forces[i])
-        print("Got Forces")
-    except FileNotFoundError:
-        print("No Forces")    
-    
-    V_to_au = 1/27.211386245988
-    esp_path = os.path.join(os.path.normpath(os.path.dirname(dataset.file_path)), "esps_by_mm.txt")
-    try:
-        esps = read_irregular_file(esp_path, conversion_factor=V_to_au)
-        for i in range(len(dataset)):
-            dataset[i].set("esp", esps[i])
-        print("Got ESP")
-    except FileNotFoundError:
-        for i in range(len(dataset)):
-            dataset[i].set("esp", np.zeros_like(dataset[i]["node_number"], dtype=np.float64))
-        print("Vacuum")
+        if forces is not None:
+            dataset[i].set("forces", forces[i])  
+        
+        if esps is not None:
+            for i in range(len(dataset)):
+                dataset[i].set("esp", esps[i])
+        else:
+            for i in range(len(dataset)):
+                dataset[i].set("esp", np.zeros_like(dataset[i]["node_number"], dtype=np.float64))
 
-    esp_grad_path = os.path.join(os.path.normpath(os.path.dirname(dataset.file_path)), "esp_gradients.xyz")
-    try:
-        esp_grads = read_forces_file(esp_grad_path)
-        for i in range(len(dataset)):
-            dataset[i].set("esp_grad", esp_grads[i])
-        print("Got ESP Gradient")
-    except FileNotFoundError:
-        for i in range(len(dataset)):
-            dataset[i].set("esp_grad", np.zeros_like(dataset[i]["node_coordinates"], dtype=np.float64))
-        print("No ESP Gradient")
-    
-    make_and_write_csv(energy_path=energy_path, total_charge=total_charges, prefix=dataset_name, target_path=data_directory)
+        if esp_grads is not None:
+            for i in range(len(dataset)):
+                dataset[i].set("esp_grad", esp_grads[i])
+        else:
+            for i in range(len(dataset)):
+                dataset[i].set("esp_grad", np.zeros_like(dataset[i]["node_coordinates"], dtype=np.float64))
+
+        if (i+1) % 1000 == 0:
+            print(f"Set properties for {i+1} molecules")
+
+    dataset.map_list(
+        method="set_range", 
+        max_distance=(cutoff+1.0)*constants.angstrom_to_bohr, 
+        max_neighbours=max_neighbors
+        ) # Add one Angstrom to cutoff to be sure
+    dataset.map_list(method="set_angle")
+    dataset.map_list(
+        method="count_nodes_and_edges", 
+        total_nodes="total_nodes", 
+        total_edges="total_ranges", 
+        count_nodes="node_number", 
+        count_edges="range_indices"
+    )
     dataset.save()
 
 def main():
     config_data = parse_args()
     
-    data_folder = config_data["DATA_FOLDER"]
-    geometry_file = config_data["GEOMETRY_FILE"]
-    energy_file = config_data["ENERGY_FILE"]
-    force_file = config_data["FORCE_FILE"]
-    charge_file = config_data["CHARGE_FILE"]
-    esp_file = config_data["ESP_FILE"]
-    esp_grad_file = config_data["ESP_GRAD_FILE"]
-    cutoff = config_data["CUTOFF"]
-    max_neighbors = config_data["MAX_NEIGHBORS"]
-    prefix = config_data["PREFIX"]
     target_folder = config_data["TARGET_FOLDER"]
-
     if not os.path.exists(target_folder):
         os.makedirs(target_folder)
     elif OVERWRITE is False:
@@ -210,37 +273,9 @@ def main():
         exit(1)
     else:
         print(f"Warning: Existing data in {target_folder} was overwritten")
-
-    geometry_path = join(data_folder, geometry_file)
-    energy_path = join(data_folder, energy_file)
-    force_path = join(data_folder, force_file)
-    charge_path = join(data_folder, charge_file)
-    esp_path = join(data_folder, esp_file)
-    esp_grad_path = join(data_folder, esp_grad_file)
-    
-    copy_data(
-        geometry_path=geometry_path,
-        charge_path=charge_path,
-        esp_path=esp_path,
-        esp_grad_path=esp_grad_path,
-        force_path=force_path,
-        prefix=prefix,
-        target_path=target_folder
-    )
-
-    make_and_write_csv(
-        energy_path=energy_path,
-        total_charge=None,
-        prefix=prefix,
-        target_path=target_folder
-    ) # Get overwritten after reading charges
         
     prepare_kgcnn_dataset(
-        data_directory=target_folder,
-        energy_path=energy_path,
-        dataset_name=prefix,
-        cutoff=cutoff,
-        max_neighbors=max_neighbors
+        config=config_data
     )
 
 if __name__ == "__main__":
