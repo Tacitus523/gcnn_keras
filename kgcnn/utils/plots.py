@@ -6,8 +6,7 @@ import tensorflow as tf
 import os
 
 # Set seaborn context for better plot aesthetics
-sns.set_context("talk")
-
+sns.set_context("talk", font_scale=0.8)
 
 def plot_train_test_loss(histories: list, loss_name: str = None,
                          val_loss_name: str = None, data_unit: str = "", model_name: str = "",
@@ -200,8 +199,10 @@ def plot_predict_true(y_predict, y_true, data_unit: list = None, model_name: str
     plt.ylabel('Prediction')
     plt.title("Prediction of " + model_name + " for " + dataset_name)
     plt.legend(loc='upper left', fontsize='x-large')
+
+    plt.tight_layout()
     if filepath is not None:
-        plt.savefig(os.path.join(filepath, model_name + "_" + dataset_name + "_" + file_name))
+        plt.savefig(os.path.join(filepath, model_name + "_" + dataset_name + "_" + file_name), dpi=dpi, bbox_inches='tight')
     if show_fig:
         plt.show()
     return fig
@@ -250,8 +251,10 @@ def plot_test_set_prediction(data: pd.DataFrame, observation: str, prediction: s
     elif r2 is not None:
         plot.ax.text(text_x, text_y, f"R2: {r2:.2f}", bbox={
         "facecolor": "grey", "alpha": 0.5, "pad": 10})
+    
+    plt.tight_layout()
     if filepath is not None:
-        plt.savefig(filepath, dpi=300, bbox_inches = "tight")
+        plt.savefig(filepath, dpi=100, bbox_inches = "tight")
     if show_fig is True:
         plt.show()
     plt.close()

@@ -46,7 +46,7 @@ def parse_args() -> argparse.Namespace:
         "--geoms",
         type=str,
         default=HDNNP_GEOMS,
-        help="Path to a geometry file containing both reference and predicted data. Run test_hdnnp.py to generate this file."
+        help="Path to a geometry file containing both reference and predicted data."
     )
     parser.add_argument(
         "-s",
@@ -54,6 +54,12 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default=DATA_SOURCES_FILE,
         help="Path to the data sources file, default: %s" % DATA_SOURCES_FILE,
+    )
+    parser.add_argument(
+        "--plot-charges",
+        action="store_true",
+        default=False,
+        help="Enable charge plotting (default: False). If not specified, charges will not be plotted even if available."
     )
     return parser.parse_args()
 
@@ -84,7 +90,7 @@ def extract_data(
     result = {}
     result["energy"] = np.array(ref_energy) # eV #* H_to_eV # Convert Hartree to eV
     result["forces"] = np.array(ref_forces) # eV/Å #* H_B_to_ev_angstrom # Convert Hartree/Bohr to eV/Å
-    result["charges"] = np.array(ref_charges)
+    result["charges"] = np.array(ref_charges) if ref_charges else None
     result["elements"] = np.array(ref_elements)
     return result
 
@@ -231,7 +237,8 @@ def main() -> None:
         "HDNNPforces.png"
     )
 
-    if "charges" in ref_data and "charges" in hdnnp_data:
+    # Only plot charges if explicitly enabled and data is available
+    if args.plot_charges and "charges" in ref_data and "charges" in hdnnp_data:
         plot_data(
             ref_data,
             hdnnp_data,
