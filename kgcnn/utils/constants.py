@@ -13,6 +13,7 @@ V_to_au = eV_to_hartree
 
 hartree_bohr_to_kcalmol_angstrom = hartree_to_kcalmol * 1/bohr_to_angstrom
 hartree_bohr_to_eV_angstrom = hartree_to_eV * 1/bohr_to_angstrom
+eV_angstrom_to_hartree_bohr = 1/hartree_bohr_to_eV_angstrom
 
 # Dictionary mapping atomic number to element symbol
 atomic_number_to_element = {
