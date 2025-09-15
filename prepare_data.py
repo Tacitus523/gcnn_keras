@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 import argparse
 import json
 import numpy as np
@@ -148,7 +148,7 @@ def get_charges(config: Dict[str, Any]) -> Tuple[Optional[List[np.ndarray]], Opt
         return None, None
     charge_path = join(config["DATA_FOLDER"], config["CHARGE_FILE"])
     if not os.path.exists(charge_path):
-        raise FileNotFoundError(f"Given charge file {charge_path} not found in {config['DATA_FOLDER']}")
+        raise FileNotFoundError(f"Given charge file {config['CHARGE_FILE']} not found in {config['DATA_FOLDER']}")
 
     charges = read_irregular_file(charge_path)
     total_charges = []
@@ -172,7 +172,7 @@ def get_forces(config: Dict[str, Any]) -> Optional[List[np.ndarray]]:
         return None
     force_path = join(config["DATA_FOLDER"], config["FORCE_FILE"])
     if not os.path.exists(force_path):
-        raise FileNotFoundError(f"Given force file {force_path} not found in {config['DATA_FOLDER']}")
+        raise FileNotFoundError(f"Given force file {config['FORCE_FILE']} not found in {config['DATA_FOLDER']}")
 
     forces = read_forces_file(force_path)
     return forces
@@ -182,7 +182,7 @@ def get_esps(config: Dict[str, Any]) -> Optional[List[np.ndarray]]:
         return None
     esp_path = join(config["DATA_FOLDER"], config["ESP_FILE"])
     if not os.path.exists(esp_path):
-        raise FileNotFoundError(f"Given ESP file {esp_path} not found in {config['DATA_FOLDER']}")
+        raise FileNotFoundError(f"Given ESP file {config['ESP_FILE']} not found in {config['DATA_FOLDER']}")
 
     esps = read_irregular_file(esp_path, conversion_factor=VOLT_TO_ATOMIC_UNITS)
     return esps
@@ -192,7 +192,7 @@ def get_esp_grads(config: Dict[str, Any]) -> Optional[List[np.ndarray]]:
         return None
     esp_grad_path = join(config["DATA_FOLDER"], config["ESP_GRAD_FILE"])
     if not os.path.exists(esp_grad_path):
-        raise FileNotFoundError(f"Given ESP gradient file {esp_grad_path} not found in {config['DATA_FOLDER']}")
+        raise FileNotFoundError(f"Given ESP gradient file {config['ESP_GRAD_FILE']} not found in {config['DATA_FOLDER']}")
 
     esp_grads = read_forces_file(esp_grad_path, conversion_factor=VOLT_PER_ANGSTROM_TO_ATOMIC_UNITS)
     return esp_grads
@@ -203,11 +203,11 @@ def get_properties_from_extxyz(config: Dict[str, Any]) -> Tuple[Optional[List[np
         return None, None, None, None, None, None
     data_folder = config["DATA_FOLDER"]
     extyxz_file = config["EXTXYZ_FILE"]
-    if not os.path.exists(join(data_folder, extyxz_file)):
+    extyxz_path = join(data_folder, extyxz_file)
+    if not os.path.exists(extyxz_path):
         raise FileNotFoundError(f"Given extxyz file {extyxz_file} not found in {data_folder}")
 
-    extyxz_path = join(data_folder, extyxz_file)
-    all_molecules: List[Atoms] = read_molecule(extyxz_path, index=":")
+    all_molecules: List[Atoms] = read_molecule(extyxz_path, index=":", format="extxyz")
 
     charges = []
     total_charges = []
@@ -379,6 +379,7 @@ def prepare_kgcnn_dataset(config: Dict[str, Any]) -> QMDataset:
         count_edges="range_indices"
     )
     dataset.save()
+    print(f"Dataset with {len(dataset)} molecules saved with prefix {dataset_name} in {target_folder}")
     return dataset
 
 def main():
