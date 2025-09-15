@@ -348,7 +348,7 @@ def prepare_kgcnn_dataset(config: Dict[str, Any]) -> QMDataset:
             dataset[i].set("total_charge", total_charges[i])
 
         if forces is not None:
-            dataset[i].set("forces", forces[i])  
+            dataset[i].set("force", forces[i])  
         
         if esps is not None:
             dataset[i].set("esp", esps[i])
