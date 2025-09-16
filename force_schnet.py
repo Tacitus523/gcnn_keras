@@ -101,6 +101,15 @@ CONFIG_DATA = {
     "wandb_name": WANDB_NAME
 }
 
+BASE_MODEL_CONFIG = {
+    "name": "Schnet",
+    "inputs": [
+        {"shape": [None], "name": "node_number", "dtype": "int64", "ragged": True},
+        {"shape": [None, 3], "name": "node_coordinates", "dtype": "float32", "ragged": True},
+        {"shape": [None, 2], "name": "range_indices", "dtype": "int64", "ragged": True},
+    ]
+}
+
 def load_data(config: Dict) -> MemoryGraphDataset:
     data_directory = config["data_directory"]
     dataset_name = config["dataset_name"]
@@ -117,12 +126,6 @@ def load_data(config: Dict) -> MemoryGraphDataset:
 def create_model_config(config: Dict[str, Any]) -> Dict[str, Any]:
     """Create model configuration for SchNet."""
     model_config = {
-        "name": "Schnet",
-        "inputs": [
-            {"shape": [None], "name": "node_number", "dtype": "int64", "ragged": True},
-            {"shape": [None, 3], "name": "node_coordinates", "dtype": "float32", "ragged": True},
-            {"shape": [None, 2], "name": "range_indices", "dtype": "int64", "ragged": True},
-        ],
         "input_embedding": {
             "node": {"input_dim": 95, "output_dim": config["input_embedding_dim"]}
         },
@@ -148,8 +151,10 @@ def create_model_config(config: Dict[str, Any]) -> Dict[str, Any]:
         },
         "output_embedding": "graph",
         "output_to_tensor": True,
+        "use_output_mlp": False,
         "output_mlp": None
     }
+    model_config.update(BASE_MODEL_CONFIG)  # Merge with base config to ensure inputs are included
     print("Model config:")
     print(model_config) 
     return model_config
@@ -392,6 +397,8 @@ def evaluate_model(dataset: MemoryGraphDataset,
     error_dict = {}
     wandb_error_dict = {}
     for stage, stage_index in zip(stages, indices):
+        if not stage_index.size:
+            continue # Skip empty indices
         stage_dataset = dataset[stage_index]
         atomic_numbers_list = stage_dataset.get("node_number")
         true_energy = stage_dataset.get("graph_labels")
@@ -502,6 +509,10 @@ def parse_arguments() -> Dict[str, Any]:
         except FileNotFoundError:
             print(f"Config file {args.config_path} not found.")
             exit(1)
+
+        for key in file_config_data.keys():
+            if key not in config_data.keys():
+                raise KeyError(f"Unknown configuration key: {key}")
 
         # Update config_data with values from config file
         config_data.update(file_config_data)

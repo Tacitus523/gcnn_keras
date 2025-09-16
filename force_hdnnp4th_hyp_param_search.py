@@ -65,6 +65,11 @@ def parse_args() -> Dict[str, Any]:
         except FileNotFoundError:
             print(f"Config file {args.config_path} not found.")
             exit(1)
+
+        for key in file_config.keys():
+            if key not in config.keys():
+                raise KeyError(f"Unknown configuration key: {key}")
+
         config.update(file_config)
 
     for key, value in config.items():
@@ -85,6 +90,8 @@ class BaseHDNNPTuner:
     def _build_raw_hyperparameters(self, hp: kt.HyperParameters) -> Dict[str, Any]:
         """Build raw hyperparameters from the tuner."""
 
+        # cutoff_rad = 25
+        # cutoff_ang = 16
         # cutoff_rad = hp.Float("cutoff_rad", 30, 30, 8)
         # cutoff_ang = hp.Float("cutoff_ang", 30, 30, 8)
         #rs_array_choice = "0.0 4.0 6.0 8.0"
@@ -95,13 +102,13 @@ class BaseHDNNPTuner:
             "0.0 4.0 6.0 8.0 10.0 12.0 16.0",
             #"0.0 3.0 4.0 5.0 6.0 7.0 8.0 9.0 10.0 11.0 12.0"
         ])
-        #eta_array_choice = "0.0 0.08 0.3"
+        #eta_array_choice = "0.08 0.3"
         eta_array_choice = hp.Choice("eta_array", [
-            "0.0 0.08 0.3",
+            "0.08 0.3",
             #"0.03 0.16 0.5",
-            #"0.0 0.03 0.08 0.16 0.3 0.5",
-            "0.0 0.06 0.16 0.32 0.6 0.8 1.0",
-            #"0.0 0.03 0.08 0.16 0.3 0.5 0.6 0.75 0.9 1.0"
+            #"0.03 0.08 0.16 0.3 0.5",
+            "0.06 0.16 0.32 0.6 0.8 1.0",
+            #"0.03 0.08 0.16 0.3 0.5 0.6 0.75 0.9 1.0"
         ])
         #lambd_array_choice = "-1 1"
         lambd_array_choice = hp.Choice("lamb_array", [

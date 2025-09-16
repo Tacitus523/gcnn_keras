@@ -101,6 +101,15 @@ CONFIG_DATA = {
     "wandb_name": WANDB_NAME
 }
 
+BASE_MODEL_CONFIG = {
+    "name": "PAiNN",
+    "inputs": [
+        {"shape": [None], "name": "node_number", "dtype": "int64", "ragged": True},
+        {"shape": [None, 3], "name": "node_coordinates", "dtype": "float32", "ragged": True},
+        {"shape": [None, 2], "name": "range_indices", "dtype": "int64", "ragged": True},
+    ],
+}
+
 def load_data(config: Dict) -> MemoryGraphDataset:
     data_directory = config["data_directory"]
     dataset_name = config["dataset_name"]
@@ -116,28 +125,23 @@ def load_data(config: Dict) -> MemoryGraphDataset:
 
 def create_model_config(config: Dict[str, Any]) -> Dict[str, Any]:
     model_config = {
-            "name": "PAiNNEnergy",
-            "inputs": [
-                {"shape": [None], "name": "node_number", "dtype": "int64", "ragged": True},
-                {"shape": [None, 3], "name": "node_coordinates", "dtype": "float32", "ragged": True},
-                {"shape": [None, 2], "name": "range_indices", "dtype": "int64", "ragged": True},
-            ],
-            "input_embedding": {"node": {"input_dim": 95, "output_dim": config["input_embedding_dim"]}},
-            "equiv_initialize_kwargs": {"dim": 3, "method": "eps"},
-            "bessel_basis": {
-                "num_radial": config["bessel_num_radial"], 
-                "cutoff": config["bessel_cutoff"], 
-                "envelope_exponent": config["bessel_envelope_exponent"]
-            },
-            "pooling_args": {"pooling_method": "sum"},
-            "conv_args": {"units": config["conv_units"], "cutoff": None},
-            "update_args": {"units": config["update_units"]},
-            "depth": config["model_depth"], "verbose": 10,
-            "output_embedding": "graph",
-            "output_mlp": {"use_bias": [True] * len(config["output_mlp_units"]), 
-                          "units": config["output_mlp_units"], 
-                          "activation": [config["activation"]] * (len(config["output_mlp_units"]) - 1) + ["linear"]},
-        }
+        "input_embedding": {"node": {"input_dim": 95, "output_dim": config["input_embedding_dim"]}},
+        "equiv_initialize_kwargs": {"dim": 3, "method": "eps"},
+        "bessel_basis": {
+            "num_radial": config["bessel_num_radial"], 
+            "cutoff": config["bessel_cutoff"], 
+            "envelope_exponent": config["bessel_envelope_exponent"]
+        },
+        "pooling_args": {"pooling_method": "sum"},
+        "conv_args": {"units": config["conv_units"], "cutoff": None},
+        "update_args": {"units": config["update_units"]},
+        "depth": config["model_depth"], "verbose": 10,
+        "output_embedding": "graph",
+        "output_mlp": {"use_bias": [True] * len(config["output_mlp_units"]), 
+                        "units": config["output_mlp_units"], 
+                        "activation": [config["activation"]] * (len(config["output_mlp_units"]) - 1) + ["linear"]},
+    }
+    model_config.update(BASE_MODEL_CONFIG)  # Merge with base config to ensure inputs are included
     print("Model config:")
     print(model_config) 
     return model_config
@@ -381,6 +385,8 @@ def evaluate_model(dataset: MemoryGraphDataset,
     error_dict = {}
     wandb_error_dict = {}
     for stage, stage_index in zip(stages, indices):
+        if not stage_index:
+            continue  # Skip if the index list is empty
         stage_dataset = dataset[stage_index]
         atomic_numbers_list = stage_dataset.get("node_number")
         true_energy = stage_dataset.get("graph_labels")
@@ -491,6 +497,10 @@ def parse_arguments() -> Dict[str, Any]:
         except FileNotFoundError:
             print(f"Config file {args.config_path} not found.")
             exit(1)
+
+        for key in file_config_data.keys():
+            if key not in config_data.keys():
+                raise KeyError(f"Unknown configuration key: {key}")
 
         # Update config_data with values from config file
         config_data.update(file_config_data)

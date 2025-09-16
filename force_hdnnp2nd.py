@@ -41,7 +41,7 @@ MODEL_PREFIX = "model_energy_force" # Will be used to save the models
 # Radial parameters
 CUTOFF_RAD = 20 # Radial cutoff distance in Bohr
 RS_ARRAY   = [0.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0] # Shift parameter Rs in Bohr
-ETA_ARRAY  = [0.0, 0.03, 0.08, 0.16, 0.3, 0.5] # Width parameter eta in 1/Bohr^2
+ETA_ARRAY  = [0.03, 0.08, 0.16, 0.3, 0.5] # Width parameter eta in 1/Bohr^2
 
 # Angular parameters
 CUTOFF_ANG    = 12 # Angular cutoff distance in Bohr
@@ -111,6 +111,16 @@ CONFIG_DATA = {
     "wandb_name": WANDB_NAME
 }
 
+BASE_MODEL_CONFIG = {
+    "name": "HDNNP2nd",
+    "inputs": [
+        {"shape": (None,), "name": "node_number", "dtype": "int64", "ragged": True},
+        {"shape": (None, 3), "name": "node_coordinates", "dtype": "float32", "ragged": True},
+        {"shape": (None, 2), "name": "range_indices", "dtype": "int64", "ragged": True},
+        {"shape": (None, 3), "name": "angle_indices_nodes", "dtype": "int64", "ragged": True},
+    ]
+}
+
 def load_data(config: Dict) -> MemoryGraphDataset:
     """Load dataset and validate configuration."""
     data_directory = config["data_directory"]
@@ -123,30 +133,11 @@ def load_data(config: Dict) -> MemoryGraphDataset:
     print("Dataset:", os.path.join(data_directory, file_name))
     print(dataset[0].keys())
     
-    # Check what atomic numbers are actually in the dataset
-    all_atomic_numbers = []
-    for i in range(len(dataset)):
-        all_atomic_numbers.extend(dataset[i]["node_number"])
-        
-    unique_atomic_numbers = sorted(list(set(all_atomic_numbers)))
-    print(f"Unique atomic numbers in dataset: {unique_atomic_numbers}")
-    assert max(unique_atomic_numbers) < config["max_elements"], \
-        f"Atomic number {max(unique_atomic_numbers)} exceeds max_elements {config['max_elements']}."
-    assert config["elemental_mapping"] == unique_atomic_numbers, \
-        f"Elemental mapping {config['elemental_mapping']} does not match unique atomic numbers {unique_atomic_numbers}."
-    
     return dataset
 
 def create_model_config(config: Dict[str, Any]) -> Dict[str, Any]:
     """Create model configuration for HDNNP2nd."""
     model_config = {
-        "name": "HDNNP2nd",
-        "inputs": [
-            {"shape": (None,), "name": "node_number", "dtype": "int64", "ragged": True},
-            {"shape": (None, 3), "name": "node_coordinates", "dtype": "float32", "ragged": True},
-            {"shape": (None, 2), "name": "range_indices", "dtype": "int64", "ragged": True},
-            {"shape": (None, 3), "name": "angle_indices_nodes", "dtype": "int64", "ragged": True},
-        ],
         "g2_kwargs": {
             "eta": config["eta_array"], 
             "rs": config["rs_array"], 
@@ -175,6 +166,7 @@ def create_model_config(config: Dict[str, Any]) -> Dict[str, Any]:
         "use_output_mlp": False,
         "output_mlp": None
     }
+    model_config.update(BASE_MODEL_CONFIG)  # Merge with base config to ensure inputs are included
     print("Model config:")
     print(model_config) 
     return model_config
@@ -404,6 +396,8 @@ def evaluate_model(dataset: MemoryGraphDataset,
     error_dict = {}
     wandb_error_dict = {}
     for stage, stage_index in zip(stages, indices):
+        if not stage_index.size:
+            continue # Skip empty indices
         stage_dataset = dataset[stage_index]
         atomic_numbers_list = stage_dataset.get("node_number")
         true_energy = stage_dataset.get("graph_labels")
@@ -517,6 +511,10 @@ def parse_arguments() -> Dict[str, Any]:
 
         # Update config_data with values from config file
         config_data.update(file_config_data)
+
+        for key in file_config_data.keys():
+            if key not in config_data.keys():
+                raise KeyError(f"Unknown configuration key: {key}")
     
     config_data["git_commit_hash"] = get_git_commit_hash()
 

@@ -65,6 +65,11 @@ def parse_args() -> Dict[str, Any]:
         except FileNotFoundError:
             print(f"Config file {args.config_path} not found.")
             exit(1)
+
+        for key in file_config.keys():
+            if key not in config.keys():
+                raise KeyError(f"Unknown configuration key: {key}")
+
         config.update(file_config)
 
     for key, value in config.items():
