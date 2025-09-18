@@ -385,7 +385,7 @@ def evaluate_model(dataset: MemoryGraphDataset,
     error_dict = {}
     wandb_error_dict = {}
     for stage, stage_index in zip(stages, indices):
-        if not stage_index:
+        if not stage_index.size:
             continue  # Skip if the index list is empty
         stage_dataset = dataset[stage_index]
         atomic_numbers_list = stage_dataset.get("node_number")
