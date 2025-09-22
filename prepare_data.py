@@ -106,6 +106,10 @@ def prepare_config(raw_config: Dict[str, Any]) -> Dict[str, Any]:
     config["MAX_NEIGHBORS"] = int(config["MAX_NEIGHBORS"])
 
     # File structure check
+    if not os.path.exists(config["DATA_FOLDER"]):
+        raise FileNotFoundError(f"Given data folder {config['DATA_FOLDER']} not found.")
+    if config["DATA_FOLDER"] == ".":
+        config["DATA_FOLDER"] = os.getcwd()
     target_folder = config["TARGET_FOLDER"]
     if not os.path.exists(target_folder):
         os.makedirs(target_folder)
