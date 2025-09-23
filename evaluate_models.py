@@ -64,7 +64,7 @@ def parse_arguments() -> argparse.Namespace:
         help="Type of models to evaluate"
     )
     parser.add_argument(
-        "--data_directory",
+        "-d", "--data_directory",
         required=True,
         help="Path to dataset directory containing the .kgcnn.pickle file"
     )
@@ -114,8 +114,7 @@ def load_indices(indices_path: Optional[str]) -> Optional[Tuple[np.ndarray, np.n
 
     return (np.array([]), np.array([]), test_indices) # Return only test indices for evaluation
 
-
-def load_scaler(scaler_path: Optional[str]):
+def load_scaler(scaler_path: Optional[str]) -> EnergyForceExtensiveLabelScaler:
     """Load scaler based on model type."""
     if scaler_path is None:
         return None
@@ -222,7 +221,7 @@ def main():
     # Load scaler
     scaler = load_scaler(args.scaler)
     if scaler:
-        scaler.fit_transform_dataset(dataset)
+        scaler.transform_dataset(dataset) # Evaluate includes inverse transform
     
     # Evaluate each model
     for i, model_path in enumerate(args.models):
