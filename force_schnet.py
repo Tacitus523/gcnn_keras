@@ -412,17 +412,23 @@ def evaluate_model(dataset: MemoryGraphDataset,
             predicted_energy, predicted_force = scaler.inverse_transform(
             y=(predicted_energy.flatten(), predicted_force), X=atomic_numbers_list)
 
-        true_energy = np.array(true_energy).reshape(-1,1)*constants.hartree_to_eV
-        true_force = np.array(true_force).reshape(-1,1)*constants.hartree_bohr_to_eV_angstrom
+        true_energy = [array*constants.hartree_to_eV for array in true_energy] # needed for .extxyz in correct shape
+        true_force = [array*constants.hartree_bohr_to_eV_angstrom for array in true_force] # needed for .extxyz in correct shape
 
-        predicted_energy = np.array(predicted_energy).reshape(-1,1)*constants.hartree_to_eV
-        predicted_force = np.array(predicted_force).reshape(-1,1)*constants.hartree_bohr_to_eV_angstrom
-        
+        flat_true_energy = np.concatenate([array.reshape(-1,1) for array in true_energy])
+        flat_true_force = np.concatenate([array.reshape(-1,1) for array in true_force])
+
+        predicted_energy = [array*constants.hartree_to_eV for array in predicted_energy] # needed for .extxyz in correct shape
+        predicted_force = [array*constants.hartree_bohr_to_eV_angstrom for array in predicted_force] # needed for .extxyz in correct shape
+
+        flat_predicted_energy = np.concatenate([array.reshape(-1,1) for array in predicted_energy])
+        flat_predicted_force = np.concatenate([array.reshape(-1,1) for array in predicted_force])
+
         # Calculate metrics
         for label, true_value, predicted_value in zip(
             ["energy", "force"],
-            [true_energy, true_force],
-            [predicted_energy, predicted_force]
+            [flat_true_energy, flat_true_force],
+            [flat_predicted_energy, flat_predicted_force]
         ):
             rmse = mean_squared_error(true_value, predicted_value, squared=False)
             mae = mean_absolute_error(true_value, predicted_value)
@@ -445,6 +451,7 @@ def evaluate_model(dataset: MemoryGraphDataset,
 
     # Remaining evaluation only on the test set
     positions_list: List[np.ndarray] = stage_dataset.get("node_coordinates")
+    positions_list = [array*constants.bohr_to_angstrom for array in positions_list]
     ref_infos: Dict[str, np.ndarray] = {}
     ref_arrays: Dict[str, List[np.ndarray]] = {}
     pred_infos: Dict[str, np.ndarray] = {}
@@ -465,18 +472,18 @@ def evaluate_model(dataset: MemoryGraphDataset,
         filename=f"Schnet_geoms{model_suffix}.extxyz"
     )
 
-    plot_predict_true(predicted_energy, true_energy,
+    plot_predict_true(flat_predicted_energy, flat_true_energy,
         filepath="", data_unit="eV",
         model_name="Schnet", dataset_name=dataset_name, target_names="Energy",
         error="RMSE", file_name=f"predict_energy{model_suffix}.png", show_fig=False)
 
-    plot_predict_true(predicted_force, true_force,
+    plot_predict_true(flat_predicted_force, flat_true_force,
         filepath="", data_unit=r"$\frac{eV}{\AA}$",
         model_name="Schnet", dataset_name=dataset_name, target_names="Force",
         error="RMSE", file_name=f"predict_force{model_suffix}.png", show_fig=False)
 
-    energy_df = pd.DataFrame({"energy_reference": true_energy.flatten(), "energy_prediction": predicted_energy.flatten()})
-    force_df = pd.DataFrame({"force_reference": true_force.flatten(), "force_prediction": predicted_force.flatten()})
+    energy_df = pd.DataFrame({"energy_reference": flat_true_energy.flatten(), "energy_prediction": flat_predicted_energy.flatten()})
+    force_df = pd.DataFrame({"force_reference": flat_true_force.flatten(), "force_prediction": flat_predicted_force.flatten()})
 
     at_types_column = pd.Series(np.array(atomic_numbers_list).flatten(), name="at_types").replace(constants.atomic_number_to_element)
     force_df["at_types"] = at_types_column.repeat(3).reset_index(drop=True)
