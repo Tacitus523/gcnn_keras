@@ -33,6 +33,8 @@ ENERGY_UNIT: str = "eV"
 FORCES_UNIT: str = r"$\frac{eV}{\AA}$"
 CHARGES_UNIT: str = "e"
 
+DPI = 100
+
 # Conversion factors
 H_to_eV: float = 27.2114
 angstrom_to_bohr: float = 1.88973
@@ -154,7 +156,7 @@ def plot_data(
         for legend_handle in ax.get_legend().legend_handles:
             legend_handle.set_alpha(1)
     plt.tight_layout()
-    plt.savefig(filename, dpi=300)
+    plt.savefig(filename, dpi=DPI)
     plt.close()
 
 def create_dataframe(
