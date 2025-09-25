@@ -85,16 +85,17 @@ def main():
 def calc_statistics(stacked_predictions: np.ndarray) -> Tuple[np.ndarray, np.ndarray, float, float, float, float]:
     """Calculate means, stds, mean of means, mean of stds, std of stds, max of stds."""
     # stacked_predictions shape (n_models, n_samples, ...)
-    means = tf.reduce_mean(stacked_predictions, axis=1)  # Mean for each sample
-    stds = tf.math.reduce_std(stacked_predictions, axis=1)  # Std for each sample, shape (n_samples, ...)
-    mean_of_means = tf.reduce_mean(means)  # Mean of means
-    mean_of_stds = tf.reduce_mean(stds)  # Mean of stds
-    std_of_stds = tf.math.reduce_std(stds)  # Std of stds
-    max_of_stds = tf.reduce_max(stds)  # Max of stds
-    return means, stds, mean_of_means.numpy(), mean_of_stds.numpy(), std_of_stds.numpy(), max_of_stds.numpy()
+    means = np.mean(stacked_predictions, axis=1)  # Mean for each sample
+    stds = np.std(stacked_predictions, axis=1)  # Std for each sample, shape (n_samples, ...)
+    mean_of_means = np.mean(means)  # Mean of means
+    mean_of_stds = np.mean(stds)  # Mean of stds
+    std_of_stds = np.std(stds)  # Std of stds
+    max_of_stds = np.max(stds)  # Max of stds
+    return means, stds, mean_of_means, mean_of_stds, std_of_stds, max_of_stds
 
 def plot_std_histogram(
-        stds: tf.Tensor,data_type: str, 
+        stds: np.ndarray,
+        data_type: str,
         atom_types: Optional[np.ndarray] = None,
         unit: str = ""
     ) -> None:
@@ -110,7 +111,7 @@ def plot_std_histogram(
     # Prepare data
     std_column = f"{data_type} Std"
     df = pd.DataFrame()
-    df[std_column] = tf.reshape(stds, (-1,))
+    df[std_column] = stds.flatten()
     
     # Add atom types if provided (for force plots)
     if atom_types is not None:
@@ -135,21 +136,21 @@ def plot_std_histogram(
     plt.xlabel(f'{data_type} Standard Deviation ({unit})')
     plt.ylabel(ylabel)
     plt.grid(True)
-    plt.tight_layout()
     
     # Textbox with statistics
-    mean_std = tf.reduce_mean(stds).numpy()
-    std_std = tf.math.reduce_std(stds).numpy()
+    mean_std = np.mean(stds)
+    std_std = np.std(stds)
+    max_std = np.max(stds)
     textstr = '\n'.join((
         f'Mean: {mean_std:.4f} {unit}',
         f'Std: {std_std:.4f} {unit}',
-        f'Max: {tf.reduce_max(stds).numpy():.4f} {unit}'
+        f'Max: {max_std:.4f} {unit}'
     ))
     props = dict(boxstyle='round', facecolor='white', alpha=0.5)
     plt.gca().text(0.95, 0.50, textstr, transform=plt.gca().transAxes, fontsize=10,
                    verticalalignment='top', horizontalalignment='right', bbox=props)
-
-    # Save plot
+    
+    plt.tight_layout()
     filename = f"{data_type.lower()}_std_histogram.png"
     plt.savefig(filename, dpi=DPI, bbox_inches='tight')
     plt.close()
