@@ -21,6 +21,7 @@ print(tf.config.list_physical_devices('GPU'))
 from kgcnn.graph.base import GraphDict
 from kgcnn.data.base import MemoryGraphList, MemoryGraphDataset
 from kgcnn.data.qm import QMDataset
+from kgcnn.utils.callbacks import TrainingTimeCallback
 from kgcnn.training.scheduler import LinearLearningRateScheduler
 from kgcnn.literature.HDNNP4th import make_model_behler as make_model
 from kgcnn.data.transform.scaler.force import EnergyForceExtensiveLabelScaler
@@ -277,6 +278,7 @@ def train_single_fold(train_val_dataset: MemoryGraphDataset,
         epo_min=0,
         epo=energy_epochs)
     callbacks.append(scheduler)
+    callbacks.append(TrainingTimeCallback())
 
     if energy_early_stopping > 0:
         earlystop = ks.callbacks.EarlyStopping(
@@ -292,7 +294,7 @@ def train_single_fold(train_val_dataset: MemoryGraphDataset,
         wandb_wizard.init_wandb(train_config)
         callbacks.append(wandb_wizard.construct_wandb_callback(key_prefix="EnergyForce"))
 
-    start = time.process_time()
+    start = time.time()
     kwargs["epochs"] = kwargs.get("epochs", train_config["energy_epochs"])
     kwargs["initial_epoch"] = kwargs.get("initial_epoch", train_config.get("initial_epoch", 0))
     kwargs["callbacks"] = kwargs.get("callbacks", []) + callbacks
@@ -304,7 +306,7 @@ def train_single_fold(train_val_dataset: MemoryGraphDataset,
         shuffle=True,
         **kwargs
     )
-    stop = time.process_time()
+    stop = time.time()
     print("Energy-force model training time: ", str(timedelta(seconds=stop - start)))
 
     return hist
