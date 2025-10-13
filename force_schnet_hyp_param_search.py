@@ -88,25 +88,37 @@ class BaseSchnetTuner:
         """Build raw hyperparameters from the tuner."""
 
         # Model architecture hyperparameters
-        #input_embedding_dim = 32
+        input_embedding_dim = 32
+        #input_embedding_dim = hp.Choice("input_embedding_dim", [16, 32, 64, 96, 128, 256])
         input_embedding_dim = hp.Choice("input_embedding_dim", [32, 64, 128, 256])
-        #interaction_units = 32
+        interaction_units = 32
+        #interaction_units = hp.Choice("interaction_units", [16, 32, 64, 96, 128, 256])
         interaction_units = hp.Choice("interaction_units", [32, 64, 128, 256])
-        #model_depth = 5
+        model_depth = 5
         model_depth = hp.Int("model_depth", 3, 8, 1)
         
         # Gaussian basis hyperparameters
-        #gauss_bins = 20
+        gauss_bins = 20
         gauss_bins = hp.Int("gauss_bins", 20, 101, 10)
-        #gauss_distance = 4.0
+        gauss_distance = 4.0
         gauss_distance = hp.Choice("gauss_distance", [4.0, 5.0, 6.0])
-        #gauss_offset = 0.0
+        gauss_offset = 0.0
         gauss_offset = hp.Choice("gauss_offset", [0.0, 0.5, 1.0])
-        #gauss_sigma = 0.2
+        gauss_sigma = 0.2
         gauss_sigma = hp.Choice("gauss_sigma", [0.2, 0.4, 0.6])
         
         # Output MLP hyperparameters
-        #output_mlp_choice = "128 64 1"
+        output_mlp_choice = "128 64 1"
+        # output_mlp_choice = hp.Choice("output_mlp_layers", [
+        #     "32 1",
+        #     "64 1",
+        #     "128 1",
+        #     "64 32 1",
+        #     "128 64 1",
+        #     "256 128 1", 
+        #     "128 128 64 1",
+        #     "256 128 64 1"
+        # ])
         output_mlp_choice = hp.Choice("output_mlp_layers", [
            "128 64 1",
            "256 128 1", 
@@ -114,9 +126,9 @@ class BaseSchnetTuner:
            "256 128 64 1"
         ])
 
-        #activation = "shifted_softplus"
+        activation = "shifted_softplus"
         activation = hp.Choice("energy_activation", 
-            ["relu", "tanh", "elu", "swish", "leaky_relu", "shifted_softplus"])
+           ["relu", "tanh", "elu", "swish", "leaky_relu", "shifted_softplus"])
 
         raw_hp = {
             "input_embedding_dim": input_embedding_dim,
@@ -167,21 +179,6 @@ class MyHyperModel(kt.HyperModel, BaseSchnetTuner):
         self._hp_config = self._build_hyperparameters(hp)
         self._model_config = create_model_config(self._hp_config)
         return create_model(self._hyp_search_config, self._model_config)
-
-class MyHyperModel(kt.HyperModel, BaseSchnetTuner):
-    def __init__(self, hyp_search_config: Optional[Dict[str, Any]] = None):
-        super().__init__()
-        self._hyp_search_config: Optional[Dict[str, Any]] = hyp_search_config.copy()
-        self._hyp_search_config["energy_epochs"] = self._hyp_search_config["max_epochs"] 
-        self._hp_config: Optional[Dict[str, Any]] = None
-        self._model_config: Optional[Dict[str, Any]] = None
-
-    def build(self, hp):
-        hp_config = self._build_hyperparameters(hp)
-        self._hp_config = hp_config
-        model_config = self._build_model_config(hp_config, self._hyp_search_config)
-        self._model_config = model_config
-        return create_model(self._hyp_search_config, model_config)
     
     def fit(self, hp, models, dataset, *args, **kwargs):
         ks.backend.clear_session() # RAM is apparently not released between trials. This should clear some of it, but probably not all. https://github.com/keras-team/keras-tuner/issues/395
@@ -221,7 +218,7 @@ if __name__ == "__main__":
     # tuner = kt.GridSearch(
     #     hypermodel=hypermodel,
     #     objective=kt.Objective("val_force_loss", direction="min"),
-    #     max_trials=25,
+    #     max_trials=30,
     #     overwrite=True,
     #     directory=TRIAL_FOLDER_NAME,
     #     project_name=config["project_name"],

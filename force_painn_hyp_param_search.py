@@ -88,23 +88,34 @@ class BasePaiNNTuner:
         """Build raw hyperparameters from the tuner."""
 
         # Model architecture hyperparameters
-        #input_embedding_dim = 64
+        input_embedding_dim = 64
+        #input_embedding_dim = hp.Choice("input_embedding_dim", [16, 32, 64, 96, 128, 256])
         input_embedding_dim = hp.Choice("input_embedding_dim", [64, 128, 256])
         conv_units = input_embedding_dim
         update_units = input_embedding_dim
-        #model_depth = 5
+        model_depth = 5
         model_depth = hp.Int("model_depth", 3, 8, 1)
         
         # Bessel basis hyperparameters
-        #bessel_num_radial = 15
+        bessel_num_radial = 15
         bessel_num_radial = hp.Int("bessel_num_radial", 15, 50, 5)
-        #bessel_cutoff = 4.0
+        bessel_cutoff = 4.0
         bessel_cutoff = hp.Choice("bessel_cutoff", [4.0, 5.0, 6.0])
-        #bessel_envelope_exponent = 4
+        bessel_envelope_exponent = 4
         bessel_envelope_exponent = hp.Int("bessel_envelope_exponent", 4, 6, 1)
         
         # Output MLP hyperparameters
-        #output_mlp_choice = "128 64 1"
+        output_mlp_choice = "128 64 1"
+        # output_mlp_choice = hp.Choice("output_mlp_layers", [
+        #     "32 1",
+        #     "64 1",
+        #     "128 1",
+        #     "64 32 1",
+        #     "128 64 1",
+        #     "256 128 1", 
+        #     "128 128 64 1",
+        #     "256 128 64 1"
+        # ])
         output_mlp_choice = hp.Choice("output_mlp_layers", [
            "128 1",
            "256 1", 
@@ -114,7 +125,7 @@ class BasePaiNNTuner:
            "256 128 64 1"
         ])
 
-        #activation = "shifted_softplus"
+        activation = "shifted_softplus"
         activation = hp.Choice("energy_activation", 
             ["relu", "tanh", "elu", "swish", "leaky_relu", "shifted_softplus"])
 
