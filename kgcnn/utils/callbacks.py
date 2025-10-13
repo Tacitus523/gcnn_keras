@@ -1,6 +1,5 @@
 import tensorflow as tf
 import time
-from datetime import timedelta
 
 class LearningRateLoggingCallback(tf.keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs=None):
@@ -19,13 +18,20 @@ class TrainingTimeCallback(tf.keras.callbacks.Callback):
     def on_train_begin(self, logs=None):
         self.start_time = time.time()
         self.start_process_time = time.process_time()
+
+    def on_epoch_end(self, epoch, logs=None):
+        elapsed_time = (time.time() - self.start_time) / 60  # in minutes
+        elapsed_process_time = (time.process_time() - self.start_process_time) / 60  # in minutes
+        if logs is not None:
+            logs['elapsed_time'] = elapsed_time
+            logs['elapsed_process_time'] = elapsed_process_time
         
     def on_train_end(self, logs=None):
-        if self.start_time is not None:
-            training_time = timedelta(seconds=time.time() - self.start_time)
-            training_process_time = timedelta(seconds=time.process_time() - self.start_process_time)
-            # Add training time to history
-            if hasattr(self.model, 'history'):
-                if not hasattr(self.model.history, 'history'):
-                    self.model.history.history = {}
-                self.model.history.history['training_time'] = training_time
+        training_time = (time.time() - self.start_time) / 60  # in minutes
+        training_process_time = (time.process_time() - self.start_process_time) / 60  # in minutes
+        # Add training time to history
+        if hasattr(self.model, 'history'):
+            if not hasattr(self.model.history, 'history'):
+                self.model.history.history = {}
+            self.model.history.history['total_training_time'] = [training_time]*len(self.model.history.epoch)
+            self.model.history.history['total_training_process_time'] = [training_process_time]*len(self.model.history.epoch)
