@@ -164,7 +164,9 @@ class BasePaiNNTuner:
             "output_mlp_units": output_mlp_units,
             "activation": activation,
         }
-        assert clean_hyperparams.keys() in CONFIG_DATA.keys()
+        for key in clean_hyperparams.keys():
+            if key not in CONFIG_DATA.keys():
+                raise KeyError(f"Unknown configuration key: {key}")
         return clean_hyperparams
 
 class MyHyperModel(kt.HyperModel, BasePaiNNTuner):
@@ -219,7 +221,7 @@ if __name__ == "__main__":
     #     hypermodel=hypermodel,
     #     objective=kt.Objective("val_force_loss", direction="min"),
     #     max_trials=25,
-    #     overwrite=True,
+    #     overwrite=False,
     #     directory=TRIAL_FOLDER_NAME,
     #     project_name=config["project_name"],
     #     max_consecutive_failed_trials=1
