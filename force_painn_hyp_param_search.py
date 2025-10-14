@@ -153,7 +153,7 @@ class BasePaiNNTuner:
         # Activation function
         activation = lambda x: activations.custom_activation(x, raw_hp["activation"])
 
-        return {
+        clean_hyperparams = {
             "input_embedding_dim": raw_hp["input_embedding_dim"],
             "conv_units": raw_hp["conv_units"],
             "update_units": raw_hp["update_units"],
@@ -164,6 +164,8 @@ class BasePaiNNTuner:
             "output_mlp_units": output_mlp_units,
             "activation": activation,
         }
+        assert clean_hyperparams.keys() in CONFIG_DATA.keys()
+        return clean_hyperparams
 
 class MyHyperModel(kt.HyperModel, BasePaiNNTuner):
     def __init__(self, hyp_search_config: Optional[Dict[str, Any]] = None):

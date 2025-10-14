@@ -187,15 +187,17 @@ class BaseHDNNP2ndTuner:
         energy_layers = [raw_hp[f"energy_neurons_{i}"] for i in range(raw_hp["energy_n_layers"])]
         energy_activations = [raw_hp["energy_activation"]] * raw_hp["energy_n_layers"]
 
-        return {
+        clean_hyperparams = {
             "rs_array": rs_array,
             "eta_array": eta_array,
             "eta_ang_array": eta_array,  # Use same eta for angular
             "lambd_array": lambd_array,
             "zeta_array": zeta_array,
             "energy_hidden_layers": energy_layers,
-            "energy_hidden_activations": energy_activations
+            "energy_hidden_activation": energy_activations
         }
+        assert clean_hyperparams.keys() in CONFIG_DATA.keys()
+        return clean_hyperparams
 
 class MyHyperModel(kt.HyperModel, BaseHDNNP2ndTuner):
     def __init__(self, hyp_search_config: Optional[Dict[str, Any]] = None):
