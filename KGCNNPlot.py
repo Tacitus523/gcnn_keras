@@ -16,7 +16,7 @@ import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 import pandas as pd
-from sklearn.metrics import r2_score, root_mean_squared_error, mean_absolute_error
+from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 
 # Default geometry file
 GEOMS: str = "model_geoms.extxyz"
@@ -188,7 +188,7 @@ def plot_data(
         filename: Output filename for the plot
     """
     df: pd.DataFrame = create_dataframe(ref_data, pred_data, key, sources, x_label, y_label)
-    rmse: float = root_mean_squared_error(df[x_label], df[y_label])
+    rmse: float = mean_squared_error(df[x_label], df[y_label], squared=False)
     r2: float = r2_score(df[x_label], df[y_label])
 
     print(f"RMSE for {key}: {rmse:.2f} {unit}")
