@@ -13,7 +13,6 @@ class TrainingTimeCallback(tf.keras.callbacks.Callback):
     
     def __init__(self):
         super().__init__()
-        self.start_time = None
         
     def on_train_begin(self, logs=None):
         self.start_time = time.time()
