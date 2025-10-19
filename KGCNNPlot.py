@@ -158,9 +158,10 @@ def create_metrics_collection(
     metrics_collection["test"] = metrics
     
     # Save metrics to JSON file
-    with open("evaluation_metrics.json", "w") as f:
+    output_metrics_file = "evaluation_metrics.json"
+    with open(output_metrics_file, "w") as f:
         json.dump(metrics_collection, f, indent=2)
-    print(f"\nMetrics saved to: mace_evaluation_metrics.json")
+    print(f"\nMetrics saved to: {output_metrics_file}\n")
 
     return metrics_collection
 
@@ -218,11 +219,12 @@ def plot_data(
         verticalalignment="top",
         bbox=dict(facecolor='white', edgecolor='black', boxstyle='round,pad=0.5'),
     )
+
     # Improve legend if available
     if "source" in df.columns:
         plt.legend(title=None, loc="upper left", fontsize="small")
         for legend_handle in ax.get_legend().legend_handles:
-            legend_handle.set_alpha(1)
+            legend_handle.set_alpha(1.0)
     plt.tight_layout()
     plt.savefig(filename, dpi=DPI)
     plt.close()
@@ -254,6 +256,12 @@ def create_dataframe(
             y_label: pred_data[key],
         }
     )
+
+    if "elements" in ref_data and len(ref_data["elements"]) == len(df):
+        df["elements"] = ref_data["elements"]
+    elif "elements" in pred_data and len(pred_data["elements"]) == len(df):
+        df["elements"] = pred_data["elements"]
+
     if sources is not None:
         assert len(ref_data[key]) % len(sources) == 0, "Number of sources does not match the number of data points"
         repetitions = len(ref_data[key]) // len(sources)
@@ -264,8 +272,7 @@ def main() -> None:
     args: argparse.Namespace = parse_args()
     molecules: List[Atoms] = read(args.geoms, format="extxyz", index=":")
     ref_data: Dict[str, np.ndarray] = extract_data(
-        molecules, REF_ENERGY_KEY, REF_FORCES_KEY, REF_CHARGES_KEY
-    )
+        molecules, REF_ENERGY_KEY, REF_FORCES_KEY, REF_CHARGES_KEY)
     model_data: Dict[str, np.ndarray] = extract_data(
         molecules, PRED_ENERGY_KEY, PRED_FORCES_KEY, PRED_CHARGES_KEY
     )
@@ -284,6 +291,8 @@ def main() -> None:
             # Skip non-numeric data
             if isinstance(value, np.ndarray) and value.dtype in (np.float32, np.float64, np.int32, np.int64):
                 print(f"{name} {key}: {value.shape} Min Max: {np.min(value): .1f} {np.max(value): .1f}")
+
+    metrics_collection = create_metrics_collection(ref_data, model_data)
 
     plot_data(
         ref_data,
