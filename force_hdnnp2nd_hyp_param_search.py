@@ -143,16 +143,18 @@ class BaseHDNNP2ndTuner:
 
         # Energy model architecture hyperparameters
         #energy_max_layers = 2
+        energy_min_neurons = 25
         energy_max_neurons = 276
+        energy_neurons_step = 50
         energy_max_layers = 3
         energy_n_layers = 1
         energy_n_layers = hp.Int("energy_n_layers", 1, energy_max_layers, 1)
         energy_neurons = []
         for i in range(energy_max_layers):
             energy_neuron = 25
-            energy_neuron = hp.Int(f"energy_neurons_{i}", 25, energy_max_neurons, 50)
+            energy_neuron = hp.Int(f"energy_neurons_{i}", energy_min_neurons, energy_max_neurons, energy_neurons_step)
             energy_neurons.append(energy_neuron)
-            energy_max_neurons = energy_neuron + 1   # Ensure decreasing order
+            energy_max_neurons = max(energy_min_neurons, energy_max_neurons-energy_neurons_step)   # Ensure decreasing order
         
         energy_activation = "tanh"
         energy_activation = hp.Choice("energy_activation", 

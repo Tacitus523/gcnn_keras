@@ -145,31 +145,35 @@ class BaseHDNNPTuner:
         #charge_max_layers = 2
         #charge_max_neurons = 101
         charge_max_layers = 1
+        charge_min_neurons = 25
         charge_max_neurons = 51
+        charge_neurons_step = 25
         charge_n_layers = 1
         charge_n_layers = hp.Int("charge_n_layers", 1, charge_max_layers, 1)
         charge_neurons = []
         for i in range(charge_max_layers):
             charge_neuron = 25
-            charge_neuron = hp.Int(f"charge_neurons_{i}", 25, charge_max_neurons, 25)
+            charge_neuron = hp.Int(f"charge_neurons_{i}", charge_min_neurons, charge_max_neurons, charge_neurons_step)
             charge_neurons.append(charge_neuron)
-            charge_max_neurons = charge_neuron + 1   # Ensure decreasing order
+            charge_max_neurons = max(charge_min_neurons, charge_max_neurons-charge_neurons_step) # Ensure decreasing order
         
         charge_activation = "tanh"
         charge_activation = hp.Choice("charge_activation", 
                                    ["relu", "tanh", "elu", "swish", "leaky_relu", "shifted_softplus"])        
         
         #energy_max_layers = 2
+        energy_min_neurons = 25
         energy_max_neurons = 276
+        energy_neurons_step = 50
         energy_max_layers = 3
         energy_n_layers = 1
         energy_n_layers = hp.Int("energy_n_layers", 1, energy_max_layers, 1)
         energy_neurons = []
         for i in range(energy_max_layers):
             energy_neuron = 25
-            energy_neuron = hp.Int(f"energy_neurons_{i}", 25, energy_max_neurons, 50)
+            energy_neuron = hp.Int(f"energy_neurons_{i}", energy_min_neurons, energy_max_neurons, energy_neurons_step)
             energy_neurons.append(energy_neuron)
-            energy_max_neurons = energy_neuron + 1   # Ensure decreasing order
+            energy_max_neurons = max(energy_min_neurons, energy_max_neurons-energy_neurons_step) # Ensure decreasing order
 
         energy_activation = "tanh"
         energy_activation = hp.Choice("energy_activation", 
