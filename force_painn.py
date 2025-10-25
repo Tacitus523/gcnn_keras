@@ -370,6 +370,10 @@ def train_models(dataset: MemoryGraphDataset,
         energy_model = model_energy_force._model_energy
         energy_model.summary()
 
+    # Inverse transform the dataset to original scale in case of multiple runs
+    if use_scaler and scaler is not None:
+        scaler.inverse_transform_dataset(dataset)
+
     return model_energy_force, indices, hists, scaler
 
 def evaluate_model(dataset: MemoryGraphDataset,
