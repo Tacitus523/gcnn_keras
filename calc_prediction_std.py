@@ -20,7 +20,7 @@ import tensorflow as tf
 tf.get_logger().setLevel("ERROR")
 ks=tf.keras
 
-from HDNNPPlot import extract_data, PRED_ENERGY_KEY, PRED_FORCES_KEY, H_to_eV, H_B_to_ev_angstrom
+from KGCNNPlot import extract_data, PRED_ENERGY_KEY, PRED_FORCES_KEY, H_to_eV, H_B_to_ev_angstrom
 
 # Data in .extxyz in eV and eV/Angstrom
 # Predictions in .extxyz in Hartree and Hartree/Bohr
