@@ -32,7 +32,7 @@ PRED_CHARGES_KEY: Optional[str] = "pred_charges"
 
 # Units for plotting
 ENERGY_UNIT: str = "eV"
-FORCES_UNIT: str = r"$\frac{eV}{\AA}$"
+FORCES_UNIT: str = "eV/Å"
 CHARGES_UNIT: str = "e"
 
 DPI = 100
