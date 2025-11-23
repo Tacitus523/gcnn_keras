@@ -165,7 +165,7 @@ def make_model_behler(inputs: list = None,
         if use_output_mlp:
             out = MLP(**output_mlp)(out)
     elif output_embedding == 'charge':
-        out = q_local
+        out = charge
     elif output_embedding == 'electrostatic_energy':
         out = eng_elec
     elif output_embedding == 'charge+qm_energy':
