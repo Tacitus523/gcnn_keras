@@ -118,6 +118,15 @@ def make_model_behler(inputs: list = None,
         :obj:`tf.keras.models.Model`
 
     """
+    assert max(g2_kwargs.get("elemental_mapping")) < mlp_charge_kwargs.get("num_relations"), \
+        "Elemental mapping in g2_kwargs exceeds num_relations in mlp_charge_kwargs."
+    assert max(g4_kwargs.get("elemental_mapping")) < mlp_charge_kwargs.get("num_relations"), \
+        "Elemental mapping in g4_kwargs exceeds num_relations in mlp_charge_kwargs."
+    assert max(g2_kwargs.get("elemental_mapping")) < mlp_local_kwargs.get("num_relations"), \
+        "Elemental mapping in g2_kwargs exceeds num_relations in mlp_local_kwargs."
+    assert max(g4_kwargs.get("elemental_mapping")) < mlp_local_kwargs.get("num_relations"), \
+        "Elemental mapping in g4_kwargs exceeds num_relations in mlp_local_kwargs."
+
     # Make input
     node_input = ks.layers.Input(**inputs[0])
     xyz_input = ks.layers.Input(**inputs[1])
